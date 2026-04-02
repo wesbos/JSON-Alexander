@@ -4,9 +4,9 @@
 
 Believe it or not, George formats JSON.
 
-![Preview Chrome](preview-chrome.png)
+![Preview Chrome](src/preview-chrome.png)
 
-![Preview Firefox](preview-firefox.png)
+![Preview Firefox](src/preview-firefox.png)
 
 ## Features
 
