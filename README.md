@@ -4,7 +4,9 @@
 
 Believe it or not, George formats JSON.
 
-![Preview](preview.png)
+![Preview Chrome](preview-chrome.png)
+
+![Preview Firefox](preview-firefox.png)
 
 ## Features
 
@@ -19,19 +21,54 @@ Believe it or not, George formats JSON.
 
 ## Installation
 
+### Chrome (Unpacked Extension)
+
 1. Open Chrome and navigate to `chrome://extensions`
 2. Enable **Developer mode** (toggle in the top right)
 3. Click **Load unpacked**
-4. Select the **`dist`** folder inside this project
+4. Select the **`dist-chrome`** folder inside this project
+
+### Firefox (Temporary Add-on)
+
+1. Build the Firefox output: `npm run build:firefox`
+2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`
+3. Click **Load Temporary Add-on...**
+4. Select the `manifest.json` file inside **`dist-firefox`**
+
+#### Disable Firefox's Native JSON Viewer
+
+Firefox has a built-in JSON viewer that can prevent this add-on from taking over JSON pages. Disable it first:
+
+1. Open a new tab and go to `about:config`
+2. Accept the warning prompt if shown
+3. Search for `devtools.jsonview.enabled`
+4. Set it to `false` (toggle button on the right)
+5. Reload any JSON page
 
 ## Development
 
 ```bash
-npm run dev    # watch mode — rebuilds on file changes
-npm run build  # production build
+npm run dev:chrome   # watch and rebuild only dist-chrome
+npm run dev:firefox  # watch and rebuild only dist-firefox
+npm run build  # production build (Chrome + Firefox)
+npm run build:chrome # production build only Chrome
+npm run build:firefox # production build only Firefox
 ```
 
-After making changes, go to `chrome://extensions` and click the reload button on the extension.
+Available build outputs:
+
+- `npm run build:chrome` -> `dist-chrome`
+- `npm run build:firefox` -> `dist-firefox`
+
+Pick the development command based on which browser you are testing:
+
+- Use `npm run dev:chrome` while testing in Chrome.
+- Use `npm run dev:firefox` while testing in Firefox.
+
+After making changes:
+
+- Chrome: go to `chrome://extensions` and click the extension reload button.
+- Firefox: go to `about:debugging#/runtime/this-firefox` and click **Reload** on the temporary add-on.
 
 ## Usage
 

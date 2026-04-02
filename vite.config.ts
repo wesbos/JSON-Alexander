@@ -3,10 +3,12 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 import { resolve } from "path";
 
 const entry = process.env.ENTRY || "content";
+const target = process.env.TARGET || "chrome";
+const isFirefox = target === "firefox";
 
 export default defineConfig({
   build: {
-    outDir: "dist",
+    outDir: isFirefox ? "dist-firefox" : "dist-chrome",
     emptyOutDir: entry === "content",
     lib: {
       entry: resolve(__dirname, `src/${entry}.ts`),
@@ -25,7 +27,11 @@ export default defineConfig({
       ? [
           viteStaticCopy({
             targets: [
-              { src: "manifest.json", dest: "." },
+              {
+                src: isFirefox ? "manifest.firefox.json" : "manifest.chrome.json",
+                dest: ".",
+                rename: "manifest.json",
+              },
               { src: "icons/*", dest: "icons" },
               { src: "src/pointer-32.png", dest: "." },
             ],

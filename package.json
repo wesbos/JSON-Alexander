@@ -1,11 +1,14 @@
 {
-  "name": "json-viewer",
+  "name": "json-alexander",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build && ENTRY=content vite build --watch",
-    "build": "ENTRY=content vite build && ENTRY=page-script vite build"
+    "dev:chrome": "npm run build:chrome && ENTRY=content TARGET=chrome vite build --watch",
+    "dev:firefox": "npm run build:firefox && ENTRY=content TARGET=firefox vite build --watch",
+    "build": "npm run build:chrome && npm run build:firefox",
+    "build:chrome": "ENTRY=content TARGET=chrome vite build && ENTRY=page-script TARGET=chrome vite build",
+    "build:firefox": "ENTRY=content TARGET=firefox vite build && ENTRY=page-script TARGET=firefox vite build"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
