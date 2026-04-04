@@ -20,6 +20,12 @@ export default defineConfig({
       },
     },
   },
+  // Allow CSS ?inline imports so viewer.css can be bundled as a string
+  // directly into content.js. This is required for the sandboxed-page fix:
+  // after DOM nuke, styles are re-injected via <style> tag rather than
+  // <link href="chrome-extension://..."> which is blocked by CSP on
+  // sandboxed pages like raw.githubusercontent.com.
+  assetsInclude: [],
   plugins: [
     ...(entry === "content"
       ? [

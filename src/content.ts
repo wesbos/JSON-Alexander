@@ -6,7 +6,7 @@ import {
   toggleAllChildren,
   setupHoverPath,
 } from "./viewer";
-import "./styles/viewer.css";
+import viewerCss from "./styles/viewer.css?inline";
 
 type JsonValue =
   | string
@@ -15,6 +15,25 @@ type JsonValue =
   | null
   | JsonValue[]
   | { [key: string]: JsonValue };
+
+/**
+ * Returns true when the document is running inside a CSP-sandboxed
+ * browsing context that lacks `allow-same-origin` (e.g. raw.githubusercontent.com).
+ *
+ * In such contexts:
+ *  - `window.localStorage` throws SecurityError
+ *  - DOM <script> injection is blocked (no `allow-scripts`)
+ *
+ * The viewer still renders fully; settings fall back to compile-time defaults.
+ */
+function isSandboxed(): boolean {
+  try {
+    void window.localStorage;
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 function detectJSON(): { data: JsonValue; raw: string } | null {
   const pre = document.querySelector("body > pre");
@@ -37,11 +56,13 @@ function detectJSON(): { data: JsonValue; raw: string } | null {
 }
 
 async function storageGet(key: string, defaultValue: string): Promise<string> {
+  if (isSandboxed()) return defaultValue;
   const result = await chrome.storage.local.get({ [key]: defaultValue });
   return result[key];
 }
 
 async function storageSet(key: string, value: string): Promise<void> {
+  if (isSandboxed()) return;
   await chrome.storage.local.set({ [key]: value });
 }
 
@@ -77,14 +98,24 @@ async function init(): Promise<void> {
   const { data, raw } = result;
   const prettyRaw = JSON.stringify(data, null, 2);
 
-  // Nuke existing page content
-  document.documentElement.innerHTML = "";
-  const head = document.createElement("head");
-  const body = document.createElement("body");
-  document.documentElement.appendChild(head);
-  document.documentElement.appendChild(body);
+  // Inject styles into the existing <head> — no need to nuke or recreate it.
+  // Using an inline <style> tag (CSS bundled via ?inline Vite import) means
+  // the stylesheet is always available regardless of CSP, sandbox restrictions,
+  // or extension resource fetch policies.
+  const style = document.createElement("style");
+  style.id = "jv-styles";
+  style.textContent = viewerCss;
+  if (!document.getElementById("jv-styles")) {
+    document.head.appendChild(style);
+  }
 
-  // Build viewer DOM
+  // Clear only the body — preserve <head> and all its existing nodes.
+  // This avoids the entire "DOM nuke" fragility: no need to rebuild <head>,
+  // re-inject stylesheets, or worry about resource loading races.
+  document.body.innerHTML = "";
+  document.body.style.margin = "0";
+
+  // Build viewer root
   const root = document.createElement("div");
   root.id = "jv-root";
   root.dataset.theme = await getTheme();
@@ -115,7 +146,7 @@ async function init(): Promise<void> {
     </div>
   `;
 
-  body.appendChild(root);
+  document.body.appendChild(root);
 
   // Custom cursor (off by default)
   const cursorUrl = chrome.runtime.getURL("pointer-32.png");
@@ -127,17 +158,6 @@ async function init(): Promise<void> {
     }
   }
   applyCustomCursor(await storageGet("jv-custom-cursor", "false") === "true");
-
-  // Re-inject styles (we nuked the head)
-  const style = document.createElement("style");
-  style.textContent = (document.querySelector('style[data-vite-dev-id]') || {} as any).textContent || '';
-  // For production, the CSS is loaded via manifest. We need to re-add the link.
-  // Vite injects CSS as a <style> tag in dev, but for extension we load via manifest.
-  // Since we nuked the HTML, re-request the CSS from the extension.
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href = chrome.runtime.getURL("content.css");
-  head.appendChild(link);
 
   const tree = document.getElementById("jv-tree")!;
   const formattedEl = document.getElementById("jv-formatted")!;
@@ -178,7 +198,6 @@ async function init(): Promise<void> {
   });
   levelsContainer.appendChild(allBtn);
 
-  // Set "All" as initially active
   setActiveLevel(allBtn);
 
   function setActiveLevel(active: HTMLElement) {
@@ -200,7 +219,6 @@ async function init(): Promise<void> {
         );
       }
     }
-    // Inline action: expand/collapse all children
     if (target.classList.contains("jv-action-children")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) toggleAllChildren(line);
@@ -262,8 +280,12 @@ async function init(): Promise<void> {
   // Hover path
   setupHoverPath(tree, pathText, pathDisplay, pathCopyBtn);
 
-  // Inject data into page context
-  injectPageData(raw);
+  // Inject data into page context.
+  // Skip on sandboxed pages — <script> injection is blocked by CSP
+  // (no `allow-scripts`), producing "Blocked script execution" console errors.
+  if (!isSandboxed()) {
+    injectPageData(raw);
+  }
 }
 
 function injectPageData(raw: string): void {

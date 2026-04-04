@@ -18,13 +18,12 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["content.css"],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-script.js", "pointer-32.png", "content.css"],
+      "resources": ["page-script.js", "pointer-32.png"],
       "matches": ["<all_urls>"]
     }
   ]
