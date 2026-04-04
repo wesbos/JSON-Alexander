@@ -16,21 +16,6 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-/**
- * Returns true when the document is inside a CSP-sandboxed context
- * that omits `allow-same-origin` (e.g. raw.githubusercontent.com).
- * Used to skip script injection, which the browser blocks with a
- * console warning before any JS exception is thrown — not catchable.
- */
-function isSandboxed(): boolean {
-  try {
-    void window.localStorage;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 function detectJSON(): { data: JsonValue; raw: string } | null {
   const pre = document.querySelector("body > pre");
   const isPlainBody =
@@ -80,7 +65,8 @@ async function setTheme(theme: string): Promise<void> {
 
 async function cycleTheme(): Promise<void> {
   const current = await getTheme();
-  const next = current === "auto" ? "dark" : current === "dark" ? "light" : "auto";
+  const next =
+    current === "auto" ? "dark" : current === "dark" ? "light" : "auto";
   await setTheme(next);
   await updateThemeButton();
 }
@@ -157,7 +143,7 @@ async function init(): Promise<void> {
       root.style.setProperty("--cursor-custom", "default");
     }
   }
-  applyCustomCursor(await storageGet("jv-custom-cursor", "false") === "true");
+  applyCustomCursor((await storageGet("jv-custom-cursor", "false")) === "true");
 
   const tree = document.getElementById("jv-tree")!;
   const formattedEl = document.getElementById("jv-formatted")!;
@@ -198,21 +184,24 @@ async function init(): Promise<void> {
   setActiveLevel(allBtn);
 
   function setActiveLevel(active: HTMLElement) {
-    levelsContainer.querySelectorAll("button").forEach((b) =>
-      b.classList.remove("jv-active")
-    );
+    levelsContainer
+      .querySelectorAll("button")
+      .forEach((b) => b.classList.remove("jv-active"));
     active.classList.add("jv-active");
   }
 
   tree.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
-    if (target.classList.contains("jv-toggle") || target.classList.contains("jv-preview")) {
+    if (
+      target.classList.contains("jv-toggle") ||
+      target.classList.contains("jv-preview")
+    ) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) {
         toggleNode(line);
-        levelsContainer.querySelectorAll("button").forEach((b) =>
-          b.classList.remove("jv-active")
-        );
+        levelsContainer
+          .querySelectorAll("button")
+          .forEach((b) => b.classList.remove("jv-active"));
       }
     }
     if (target.classList.contains("jv-action-children")) {
@@ -222,10 +211,16 @@ async function init(): Promise<void> {
   });
 
   const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
-  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl };
+  const views: Record<string, HTMLElement> = {
+    tree,
+    formatted: formattedEl,
+    raw: rawEl,
+  };
 
   function setView(name: string) {
-    viewBtns.forEach((b) => b.classList.toggle("jv-active", b.dataset.view === name));
+    viewBtns.forEach((b) =>
+      b.classList.toggle("jv-active", b.dataset.view === name),
+    );
     Object.entries(views).forEach(([key, el]) => {
       el.classList.toggle("jv-active", key === name);
       el.classList.toggle("jv-hidden", key !== name);
@@ -248,7 +243,9 @@ async function init(): Promise<void> {
   });
 
   await updateThemeButton();
-  document.getElementById("jv-theme-toggle")!.addEventListener("click", cycleTheme);
+  document
+    .getElementById("jv-theme-toggle")!
+    .addEventListener("click", cycleTheme);
 
   const settingsToggle = document.getElementById("jv-settings-toggle")!;
   const settingsMenu = document.getElementById("jv-settings-menu")!;
@@ -261,8 +258,11 @@ async function init(): Promise<void> {
     }
   });
 
-  const cursorCheckbox = document.getElementById("jv-cursor-toggle") as HTMLInputElement;
-  cursorCheckbox.checked = await storageGet("jv-custom-cursor", "false") === "true";
+  const cursorCheckbox = document.getElementById(
+    "jv-cursor-toggle",
+  ) as HTMLInputElement;
+  cursorCheckbox.checked =
+    (await storageGet("jv-custom-cursor", "false")) === "true";
   cursorCheckbox.addEventListener("change", async () => {
     await storageSet("jv-custom-cursor", String(cursorCheckbox.checked));
     applyCustomCursor(cursorCheckbox.checked);
@@ -270,28 +270,29 @@ async function init(): Promise<void> {
 
   setupHoverPath(tree, pathText, pathDisplay, pathCopyBtn);
 
-  // Skip on sandboxed pages — the browser emits 'Blocked script execution'
-  // at the network level before any JS exception is thrown, so the try/catch
-  // inside injectPageData cannot suppress that console noise.
-  if (!isSandboxed()) {
-    injectPageData(raw);
-  }
+  // Inject data into page context.
+  injectPageData(raw);
 }
 
 function injectPageData(raw: string): void {
-  try {
-    const holder = document.createElement("script");
-    holder.type = "application/json";
-    holder.id = "jv-json-data";
-    holder.textContent = raw;
-    document.documentElement.appendChild(holder);
-
-    const script = document.createElement("script");
-    script.src = chrome.runtime.getURL("page-script.js");
-    document.documentElement.appendChild(script);
-  } catch {
-    // Sandboxed frames block script injection — window.data won't be available
+  // CSP `sandbox` without `allow-same-origin` sets window.origin to the string
+  // "null". Injecting a <script> into such a page logs a CSP violation, so bail
+  // out early. This covers the common case (e.g. GitHub raw files).
+  if (window.origin === "null") {
+    return;
   }
+
+  // Inject the raw JSON data into the page context via a <script> tag with type="application/json".
+  const dataHolder = document.createElement("script");
+  dataHolder.type = "application/json";
+  dataHolder.id = "jv-json-data";
+  dataHolder.textContent = raw;
+  document.documentElement.appendChild(dataHolder);
+
+  // Inject the page script that reads the JSON from the DOM and assigns it to window.data.
+  const script = document.createElement("script");
+  script.src = chrome.runtime.getURL("page-script.js");
+  document.documentElement.appendChild(script);
 }
 
 init();
