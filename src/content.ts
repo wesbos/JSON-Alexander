@@ -16,21 +16,6 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-/**
- * Returns true when the document is inside a CSP-sandboxed context
- * that omits `allow-same-origin` (e.g. raw.githubusercontent.com).
- * Used to skip script injection, which the browser blocks with a
- * console warning before any JS exception is thrown — not catchable.
- */
-function isSandboxed(): boolean {
-  try {
-    void window.localStorage;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 function detectJSON(): { data: JsonValue; raw: string } | null {
   const pre = document.querySelector("body > pre");
   const isPlainBody =
@@ -270,28 +255,25 @@ async function init(): Promise<void> {
 
   setupHoverPath(tree, pathText, pathDisplay, pathCopyBtn);
 
-  // Skip on sandboxed pages — the browser emits 'Blocked script execution'
-  // at the network level before any JS exception is thrown, so the try/catch
-  // inside injectPageData cannot suppress that console noise.
-  if (!isSandboxed()) {
-    injectPageData(raw);
-  }
+  injectPageData(raw);
 }
 
 function injectPageData(raw: string): void {
-  try {
-    const holder = document.createElement("script");
-    holder.type = "application/json";
-    holder.id = "jv-json-data";
-    holder.textContent = raw;
-    document.documentElement.appendChild(holder);
+  // CSP `sandbox` without `allow-same-origin` sets window.origin to the
+  // string "null" (per spec). Attempting script injection in that context
+  // triggers a browser-level "Blocked script execution" log before any JS
+  // exception is thrown — not suppressable via try/catch. Bail out early.
+  if (window.origin === "null") return;
 
-    const script = document.createElement("script");
-    script.src = chrome.runtime.getURL("page-script.js");
-    document.documentElement.appendChild(script);
-  } catch {
-    // Sandboxed frames block script injection — window.data won't be available
-  }
+  const holder = document.createElement("script");
+  holder.type = "application/json";
+  holder.id = "jv-json-data";
+  holder.textContent = raw;
+  document.documentElement.appendChild(holder);
+
+  const script = document.createElement("script");
+  script.src = chrome.runtime.getURL("page-script.js");
+  document.documentElement.appendChild(script);
 }
 
 init();
