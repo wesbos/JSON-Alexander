@@ -4,13 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build && ENTRY=content vite build --watch",
-    "build": "ENTRY=content vite build && ENTRY=page-script vite build",
-    "zip": "npm run build && cd dist && zip -r ../json-alexander.zip . && cd .."
+    "dev": "npm run build && vite build --watch --mode content",
+    "build": "vite build --mode content && vite build --mode page-script",
+    "zip": "npm run build && node ./scripts/zip-dist.mjs"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
     "vite": "^6.2.0",
-    "vite-plugin-static-copy": "^3.0.0"
+    "vite-plugin-static-copy": "^3.0.0",
+    "yazl": "^3.3.1"
   }
 }
