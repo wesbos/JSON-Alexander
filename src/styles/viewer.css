@@ -1,6 +1,12 @@
 body {
   margin: 0;
 }
+
+/* ── Overscrolling ── */
+html {
+  background: #181825;
+}
+
 /* ── Reset ── */
 #jv-root,
 #jv-root * {
