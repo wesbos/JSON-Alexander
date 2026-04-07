@@ -105,7 +105,7 @@ function renderNode(
     const childrenActionHtml = hasNestedContainers
       ? `<button class="jv-action-children" title="Expand/collapse all children">⇕ children</button>`
       : "";
-    const actionsHtml = `<span class="jv-inline-actions">${childrenActionHtml}<button class="jv-action-copy-node" title="Copy selected object">⧉ copy</button></span>`;
+    const actionsHtml = `<span class="jv-inline-actions">${childrenActionHtml}<button class="jv-action-copy-node" title="Copy node value">⧉ copy</button></span>`;
 
     const countHtml = label ? `<span class="jv-count"> ${label}</span>` : "";
     line.innerHTML = `<span class="jv-toggle">▶</span>${keyHtml}<span class="jv-bracket">${openBracket}</span>${countHtml}<span class="jv-preview"> ${label} ${closeBracket}</span>${actionsHtml}`;
