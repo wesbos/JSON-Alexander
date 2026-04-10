@@ -167,7 +167,9 @@ html:has(#jv-root) {
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 /* ── Tree lines ── */
@@ -292,6 +294,7 @@ html:has(#jv-root) {
 
 .jv-string {
   color: var(--string);
+  text-wrap: auto;
 }
 
 .jv-number {
