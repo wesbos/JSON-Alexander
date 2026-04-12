@@ -221,6 +221,101 @@ export function toggleAllChildren(line: HTMLElement): void {
 }
 
 
+// ── Content Search ──
+
+interface SearchState {
+  matches: HTMLElement[];
+  currentIndex: number;
+}
+
+const searchState: SearchState = { matches: [], currentIndex: -1 };
+
+function getSearchableText(line: HTMLElement): string {
+  const parts: string[] = [];
+  const key = line.querySelector<HTMLElement>(":scope > .jv-key");
+  if (key) parts.push(key.textContent || "");
+  const value = line.querySelector<HTMLElement>(
+    ":scope > .jv-string, :scope > .jv-number, :scope > .jv-bool, :scope > .jv-null"
+  );
+  if (value) parts.push(value.textContent || "");
+  return parts.join(" ");
+}
+
+function expandAncestors(line: HTMLElement): void {
+  let el: HTMLElement | null = line.parentElement;
+  while (el) {
+    if (el.classList.contains("jv-children") && el.classList.contains("jv-collapsed")) {
+      el.classList.remove("jv-collapsed");
+      const parentLine = el.closest<HTMLElement>(".jv-line");
+      if (parentLine) parentLine.classList.remove("jv-collapsed");
+    }
+    el = el.parentElement;
+  }
+}
+
+export function searchContent(
+  container: HTMLElement,
+  query: string
+): { total: number; current: number } {
+  // Clear previous highlights
+  container.querySelectorAll<HTMLElement>(".jv-search-match, .jv-search-current").forEach((el) => {
+    el.classList.remove("jv-search-match", "jv-search-current");
+  });
+  searchState.matches = [];
+  searchState.currentIndex = -1;
+
+  if (!query.trim()) return { total: 0, current: 0 };
+
+  const lowerQuery = query.toLowerCase();
+  const lines = container.querySelectorAll<HTMLElement>(".jv-line");
+
+  lines.forEach((line) => {
+    const text = getSearchableText(line);
+    if (text.toLowerCase().includes(lowerQuery)) {
+      line.classList.add("jv-search-match");
+      searchState.matches.push(line);
+    }
+  });
+
+  if (searchState.matches.length > 0) {
+    searchState.currentIndex = 0;
+    goToCurrentMatch();
+  }
+
+  return { total: searchState.matches.length, current: searchState.matches.length > 0 ? 1 : 0 };
+}
+
+function goToCurrentMatch(): void {
+  searchState.matches.forEach((m) => m.classList.remove("jv-search-current"));
+  if (searchState.currentIndex < 0 || searchState.currentIndex >= searchState.matches.length) return;
+  const match = searchState.matches[searchState.currentIndex];
+  match.classList.add("jv-search-current");
+  expandAncestors(match);
+  match.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+export function searchNext(): { total: number; current: number } {
+  if (searchState.matches.length === 0) return { total: 0, current: 0 };
+  searchState.currentIndex = (searchState.currentIndex + 1) % searchState.matches.length;
+  goToCurrentMatch();
+  return { total: searchState.matches.length, current: searchState.currentIndex + 1 };
+}
+
+export function searchPrev(): { total: number; current: number } {
+  if (searchState.matches.length === 0) return { total: 0, current: 0 };
+  searchState.currentIndex = (searchState.currentIndex - 1 + searchState.matches.length) % searchState.matches.length;
+  goToCurrentMatch();
+  return { total: searchState.matches.length, current: searchState.currentIndex + 1 };
+}
+
+export function clearSearch(container: HTMLElement): void {
+  container.querySelectorAll<HTMLElement>(".jv-search-match, .jv-search-current").forEach((el) => {
+    el.classList.remove("jv-search-match", "jv-search-current");
+  });
+  searchState.matches = [];
+  searchState.currentIndex = -1;
+}
+
 export function setupHoverPath(
   tree: HTMLElement,
   pathText: HTMLElement,

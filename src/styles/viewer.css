@@ -452,3 +452,62 @@ html:has(#jv-root) {
 #jv-settings-menu input[type="checkbox"] {
   accent-color: var(--accent);
 }
+
+/* ── Search bar ── */
+#jv-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: var(--bg);
+}
+
+#jv-search-input {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  width: 160px;
+}
+
+#jv-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+#jv-search-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 20px;
+  text-align: center;
+}
+
+#jv-search-bar button {
+  font-size: 10px;
+  padding: 1px 5px;
+  border: none !important;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+#jv-search-bar button:hover {
+  color: var(--text);
+  background: var(--btn-hover);
+}
+
+/* ── Search match highlights ── */
+.jv-line.jv-search-match {
+  background: rgba(250, 204, 21, 0.1);
+}
+
+.jv-line.jv-search-current {
+  background: rgba(250, 204, 21, 0.25);
+  outline: 1px solid rgba(250, 204, 21, 0.5);
+  outline-offset: -1px;
+}

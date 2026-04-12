@@ -5,6 +5,10 @@ import {
   toggleNode,
   toggleAllChildren,
   setupHoverPath,
+  searchContent,
+  searchNext,
+  searchPrev,
+  clearSearch,
 } from "./viewer";
 import "./styles/viewer.css";
 
@@ -147,6 +151,13 @@ async function init(): Promise<void> {
     <div id="jv-toolbar">
       <span id="jv-info"></span>
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-copy" title="Copy path">Copy</button></span>
+      <div id="jv-search-bar">
+        <input id="jv-search-input" type="text" placeholder="Search keys & values…" autocomplete="off" spellcheck="false" />
+        <span id="jv-search-count"></span>
+        <button id="jv-search-prev" title="Previous match (Shift+Enter)">▲</button>
+        <button id="jv-search-next" title="Next match (Enter)">▼</button>
+        <button id="jv-search-clear" title="Clear search (Esc)">✕</button>
+      </div>
       <div id="jv-levels"></div>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
@@ -332,6 +343,64 @@ async function init(): Promise<void> {
 
   // Hover path
   setupHoverPath(tree, pathText, pathDisplay, pathCopyBtn);
+
+  // Search
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchCount = document.getElementById("jv-search-count")!;
+  const searchBar = document.getElementById("jv-search-bar")!;
+
+  function updateSearchCount(result: { total: number; current: number }) {
+    if (result.total === 0 && searchInput.value.trim()) {
+      searchCount.textContent = "0 results";
+    } else if (result.total > 0) {
+      searchCount.textContent = `${result.current}/${result.total}`;
+    } else {
+      searchCount.textContent = "";
+    }
+  }
+
+  let searchDebounce: ReturnType<typeof setTimeout>;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      const result = searchContent(tree, searchInput.value);
+      updateSearchCount(result);
+    }, 150);
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      updateSearchCount(e.shiftKey ? searchPrev() : searchNext());
+    }
+    if (e.key === "Escape") {
+      searchInput.value = "";
+      clearSearch(tree);
+      searchCount.textContent = "";
+      searchInput.blur();
+    }
+  });
+
+  document.getElementById("jv-search-next")!.addEventListener("click", () => {
+    updateSearchCount(searchNext());
+  });
+  document.getElementById("jv-search-prev")!.addEventListener("click", () => {
+    updateSearchCount(searchPrev());
+  });
+  document.getElementById("jv-search-clear")!.addEventListener("click", () => {
+    searchInput.value = "";
+    clearSearch(tree);
+    searchCount.textContent = "";
+  });
+
+  // Ctrl/Cmd+F to focus search
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
 
   // Inject data into page context
   injectPageData(raw);
