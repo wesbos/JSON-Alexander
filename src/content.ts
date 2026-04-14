@@ -296,7 +296,10 @@ async function init(): Promise<void> {
 
   // Copy
   document.getElementById("jv-copy")!.addEventListener("click", () => {
-    navigator.clipboard.writeText(prettyRaw).then(() => {
+    const activeBtn = document.querySelector(".jv-view-btn.jv-active") as HTMLElement;
+    const contentToCopy = activeBtn.dataset.view === "raw" ? raw : prettyRaw;
+
+    navigator.clipboard.writeText(contentToCopy).then(() => {
       const btn = document.getElementById("jv-copy")!;
       const orig = btn.textContent;
       btn.textContent = "Copied!";
