@@ -6,7 +6,7 @@ Believe it or not, George formats JSON.
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-blue?logo=google-chrome)](https://chromewebstore.google.com/detail/json-alexander/aegihabihhhoihnomlekgheekcdcifpk)
 [![Downloads](https://img.shields.io/chrome-web-store/users/aegihabihhhoihnomlekgheekcdcifpk?style=flat-square)](https://chromewebstore.google.com/detail/json-alexander/aegihabihhhoihnomlekgheekcdcifpk)
-[![Rating](https://img.shields.io/chrome-web-store/rating/aegihabihhhoihnomlekgheekcdcifpk?style=flat-square)](https://chromewebstore.google.com/detail/json-alexander/aegihabihhhoihnomlekgheekcdcifpk)
+[![Rating](https://img.shields.io/chrome-web-store/rating/aegihabihhhoihnomlekgheekcdcifpk?style=flat-square)](https://chromewebstore.google.com/detail/json-alexander/aegihabihhhoihnomlekgheekcdcifpk/reviews)
 
 ![Preview Chrome](src/preview-chrome.png)
 
