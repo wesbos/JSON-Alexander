@@ -102,9 +102,10 @@ function renderNode(
       ? value.some((v) => v !== null && typeof v === "object")
       : Object.values(value as Record<string, JsonValue>).some((v) => v !== null && typeof v === "object");
 
-    const actionsHtml = hasNestedContainers
-      ? `<span class="jv-inline-actions"><button class="jv-action-children" title="Expand/collapse all children">⇕ children</button></span>`
+    const childrenActionHtml = hasNestedContainers
+      ? `<button class="jv-action-children" title="Expand/collapse all children">⇕ children</button>`
       : "";
+    const actionsHtml = `<span class="jv-inline-actions">${childrenActionHtml}<button class="jv-action-copy-node" title="Copy node value">⧉ copy</button></span>`;
 
     const countHtml = label ? `<span class="jv-count"> ${label}</span>` : "";
     line.innerHTML = `<span class="jv-toggle">▶</span>${keyHtml}<span class="jv-bracket">${openBracket}</span>${countHtml}<span class="jv-preview"> ${label} ${closeBracket}</span>${actionsHtml}`;

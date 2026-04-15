@@ -16,6 +16,60 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+function parsePath(path: string): string[] {
+  const segments: string[] = [];
+  const matcher = /([^[.\]]+)|\[(\d+|"(?:[^"\\]|\\.)*")\]/g;
+  let match: RegExpExecArray | null = matcher.exec(path);
+
+  while (match) {
+    const dotToken = match[1];
+    const bracketToken = match[2];
+
+    if (dotToken) {
+      segments.push(dotToken);
+    } else if (bracketToken) {
+      if (bracketToken.startsWith('"')) {
+        try {
+          segments.push(JSON.parse(bracketToken) as string);
+        } catch {
+          return [];
+        }
+      } else {
+        segments.push(bracketToken);
+      }
+    }
+
+    match = matcher.exec(path);
+  }
+
+  if (segments[0] === "data") return segments.slice(1);
+  return segments;
+}
+
+function getValueAtPath(source: JsonValue, path: string): JsonValue | undefined {
+  const segments = parsePath(path);
+  if (!segments.length && path !== "data") return;
+
+  let current: JsonValue | undefined = source;
+
+  for (const segment of segments) {
+    if (current === null || typeof current !== "object") return;
+
+    let next: JsonValue | undefined;
+    if (Array.isArray(current)) {
+      if (!/^\d+$/.test(segment)) return;
+      next = current[Number(segment)];
+    } else {
+      next = current[segment];
+    }
+
+    if (next === undefined) return;
+    current = next;
+  }
+
+  return current;
+}
+
 function detectJSON(): { data: JsonValue; raw: string } | null {
   const pre = document.querySelector("body > pre");
   const isPlainBody =
@@ -38,7 +92,7 @@ function detectJSON(): { data: JsonValue; raw: string } | null {
 
 async function storageGet(key: string, defaultValue: string): Promise<string> {
   const result = await chrome.storage.local.get({ [key]: defaultValue });
-  return result[key];
+  return result[key] as string;
 }
 
 async function storageSet(key: string, value: string): Promise<void> {
@@ -209,6 +263,23 @@ async function init(): Promise<void> {
     if (target.classList.contains("jv-action-children")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) toggleAllChildren(line);
+    }
+    // Inline action: copy selected node value
+    if (target.classList.contains("jv-action-copy-node")) {
+      const line = target.closest<HTMLElement>(".jv-line");
+      if (!line) return;
+      const path = line.dataset.path;
+      if (!path) return;
+
+      const selectedValue = getValueAtPath(data, path);
+      if (selectedValue === undefined) return;
+
+      navigator.clipboard.writeText(JSON.stringify(selectedValue, null, 2));
+      const originalLabel = target.textContent;
+      target.textContent = "copied!";
+      setTimeout(() => {
+        target.textContent = originalLabel;
+      }, 1000);
     }
   });
 
