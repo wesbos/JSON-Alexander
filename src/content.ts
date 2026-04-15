@@ -337,7 +337,7 @@ async function init(): Promise<void> {
 
   // Tab width select
   function applyTabWidth(width: number) {
-    root.style.setProperty("--indent", `${width * 5}px`);
+    root.style.setProperty("--indent", `${width}ch`);
     formattedEl.textContent = JSON.stringify(data, null, width);
   }
   let tabWidth = await getTabWidth();

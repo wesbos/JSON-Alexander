@@ -175,8 +175,12 @@ html:has(#jv-root) {
 /* ── Tree lines ── */
 .jv-line {
   position: relative;
-  padding-left: var(--indent, 20px);
+  padding-left: var(--indent, 4ch);
   border-radius: 2px;
+}
+
+#jv-tree > .jv-line {
+  padding-left: 0;
 }
 
 /* ── Current line highlight ── */
