@@ -175,8 +175,12 @@ html:has(#jv-root) {
 /* ── Tree lines ── */
 .jv-line {
   position: relative;
-  padding-left: 20px;
+  padding-left: var(--indent, 4ch);
   border-radius: 2px;
+}
+
+#jv-tree > .jv-line {
+  padding-left: 0;
 }
 
 /* ── Current line highlight ── */
@@ -438,7 +442,9 @@ html:has(#jv-root) {
 }
 
 #jv-settings-menu.jv-open {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 #jv-settings-menu label {
@@ -451,4 +457,14 @@ html:has(#jv-root) {
 
 #jv-settings-menu input[type="checkbox"] {
   accent-color: var(--accent);
+}
+
+#jv-settings-menu select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 12px;
+  cursor: pointer;
 }

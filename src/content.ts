@@ -99,6 +99,10 @@ async function storageSet(key: string, value: string): Promise<void> {
   await chrome.storage.local.set({ [key]: value });
 }
 
+async function getTabWidth(): Promise<number> {
+  return parseInt(await storageGet("jv-tab-width", "4"), 10);
+}
+
 async function getTheme(): Promise<string> {
   return storageGet("jv-theme", "auto");
 }
@@ -159,6 +163,7 @@ async function init(): Promise<void> {
         <button id="jv-settings-toggle" title="Settings">⚙</button>
         <div id="jv-settings-menu">
           <label><input type="checkbox" id="jv-cursor-toggle"> Custom cursor</label>
+          <label>Tab width <select id="jv-tab-width-select"><option value="2">2</option><option value="4">4</option><option value="8">8</option></select></label>
         </div>
       </div>
     </div>
@@ -328,6 +333,21 @@ async function init(): Promise<void> {
   cursorCheckbox.addEventListener("change", async () => {
     await storageSet("jv-custom-cursor", String(cursorCheckbox.checked));
     applyCustomCursor(cursorCheckbox.checked);
+  });
+
+  // Tab width select
+  function applyTabWidth(width: number) {
+    root.style.setProperty("--indent", `${width}ch`);
+    formattedEl.textContent = JSON.stringify(data, null, width);
+  }
+  let tabWidth = await getTabWidth();
+  applyTabWidth(tabWidth);
+  const tabWidthSelect = document.getElementById("jv-tab-width-select") as HTMLSelectElement;
+  tabWidthSelect.value = String(tabWidth);
+  tabWidthSelect.addEventListener("change", async () => {
+    tabWidth = parseInt(tabWidthSelect.value, 10);
+    await storageSet("jv-tab-width", tabWidthSelect.value);
+    applyTabWidth(tabWidth);
   });
 
   // Hover path
