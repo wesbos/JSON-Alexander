@@ -6,6 +6,7 @@ import {
   toggleAllChildren,
   setupHoverPath,
 } from "./viewer";
+import { toJsonSchema } from "./schema";
 import "./styles/viewer.css";
 
 type JsonValue =
@@ -152,6 +153,7 @@ async function init(): Promise<void> {
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
         <button class="jv-view-btn" data-view="raw">Raw</button>
+        <button class="jv-view-btn" data-view="schema">Schema</button>
       </div>
       <button id="jv-theme-toggle" title="Toggle theme"></button>
       <button id="jv-copy">Copy JSON</button>
@@ -166,6 +168,7 @@ async function init(): Promise<void> {
       <pre id="jv-tree"></pre>
       <pre id="jv-formatted"></pre>
       <pre id="jv-raw"></pre>
+      <pre id="jv-schema"></pre>
     </div>
   `;
 
@@ -196,6 +199,7 @@ async function init(): Promise<void> {
   const tree = document.getElementById("jv-tree")!;
   const formattedEl = document.getElementById("jv-formatted")!;
   const rawEl = document.getElementById("jv-raw")!;
+  const schemaEl = document.getElementById("jv-schema")!;
   const pathDisplay = document.getElementById("jv-path-display")!;
   const pathText = document.getElementById("jv-path-text")!;
   const pathCopyBtn = document.getElementById("jv-path-copy")!;
@@ -280,9 +284,17 @@ async function init(): Promise<void> {
 
   // View picker
   const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
-  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl };
+  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl, schema: schemaEl };
+  let schemaGenerated = false;
+
+  const copyBtn = document.getElementById("jv-copy")!;
 
   function setView(name: string) {
+    if (name === "schema" && !schemaGenerated) {
+      schemaEl.textContent = toJsonSchema(data);
+      schemaGenerated = true;
+    }
+    copyBtn.textContent = name === "schema" ? "Copy JSON Schema" : "Copy JSON";
     viewBtns.forEach((b) => b.classList.toggle("jv-active", b.dataset.view === name));
     Object.entries(views).forEach(([key, el]) => {
       el.classList.toggle("jv-active", key === name);
@@ -295,14 +307,13 @@ async function init(): Promise<void> {
   });
 
   // Copy
-  document.getElementById("jv-copy")!.addEventListener("click", () => {
-    navigator.clipboard.writeText(prettyRaw).then(() => {
-      const btn = document.getElementById("jv-copy")!;
-      const orig = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(() => {
-        btn.textContent = orig;
-      }, 1000);
+  copyBtn.addEventListener("click", () => {
+    const isSchema = copyBtn.textContent === "Copy JSON Schema";
+    const text = isSchema ? schemaEl.textContent! : prettyRaw;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = copyBtn.textContent;
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = orig; }, 1000);
     });
   });
 

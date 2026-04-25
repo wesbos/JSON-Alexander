@@ -397,23 +397,27 @@ html:has(#jv-root) {
 /* ── View visibility ── */
 #jv-tree,
 #jv-formatted,
-#jv-raw {
+#jv-raw,
+#jv-schema {
   color: var(--text);
 }
 
 #jv-tree.jv-hidden,
 #jv-formatted.jv-hidden,
-#jv-raw.jv-hidden {
+#jv-raw.jv-hidden,
+#jv-schema.jv-hidden {
   display: none;
 }
 
 #jv-formatted,
-#jv-raw {
+#jv-raw,
+#jv-schema {
   display: none;
 }
 
 #jv-formatted.jv-active,
-#jv-raw.jv-active {
+#jv-raw.jv-active,
+#jv-schema.jv-active {
   display: block;
 }
 
