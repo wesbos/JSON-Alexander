@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JSON Alexander",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "Believe it or not, George formats JSON",
   "browser_specific_settings": {
     "gecko": {
@@ -24,7 +24,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-script.js", "pointer-32.png", "content.css"],
+      "resources": ["page-script.js", "tree-worker.js", "pointer-32.png", "content.css"],
       "matches": ["<all_urls>"]
     }
   ]
