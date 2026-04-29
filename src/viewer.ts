@@ -11,37 +11,10 @@ import {
 
 const VIRTUAL_ROW_HEIGHT = 24;
 const VIRTUAL_OVERSCAN = 30;
-const VISIBLE_ROWS_BATCH_SIZE = 2000;
-const EXPAND_ALL_BATCH_SIZE = 4000;
+const PREFIX_SUM_FANOUT_THRESHOLD = 1024;
+const MAX_PHYSICAL_HEIGHT = 1_000_000;
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function renderStringValue(str: string): string {
-  if (/^https?:\/\/[^\s]+$/.test(str)) {
-    const escaped = escapeHtml(str);
-    return `<a class="jv-link" rel="noopener noreferrer" href="${escaped}">${escaped}</a>`;
-  }
-  return escapeHtml(str);
-}
-
-function renderValue(value: JsonValue): string {
-  if (typeof value === "string") {
-    return `<span class="jv-string">"${renderStringValue(value)}"</span>`;
-  }
-  if (typeof value === "number") {
-    return `<span class="jv-number">${value}</span>`;
-  }
-  if (typeof value === "boolean") {
-    return `<span class="jv-bool">${value}</span>`;
-  }
-  return `<span class="jv-null">null</span>`;
-}
+const URL_PATTERN = /^https?:\/\/[^\s]+$/;
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
@@ -49,46 +22,210 @@ function nextFrame(): Promise<void> {
   });
 }
 
-function keyHtml(node: JsonNode): string {
-  if (node.key === null) return "";
-  const key = node.isArrayElement ? String(node.key) : `"${escapeHtml(String(node.key))}"`;
-  return `<span class="jv-key">${key}</span><span class="jv-punctuation">: </span>`;
+interface PoolRow {
+  line: HTMLDivElement;
+  toggle: HTMLSpanElement;
+  keySpan: HTMLSpanElement;
+  keyPunct: HTMLSpanElement;
+  preview: HTMLSpanElement;
+  bracketOpen: HTMLSpanElement;
+  count: HTMLSpanElement;
+  bracketClose: HTMLSpanElement;
+  previewComma: HTMLSpanElement;
+  leaf: HTMLSpanElement;
+  leafValue: HTMLSpanElement;
+  leafComma: HTMLSpanElement;
+  actionChildren: HTMLButtonElement;
+  lastNodeId: number;
+  lastIsExpanded: boolean;
 }
 
-function renderRow(node: JsonNode, expanded: ReadonlySet<number>): HTMLDivElement {
+function createPoolRow(): PoolRow {
   const line = document.createElement("div");
-  const isContainer = isContainerNode(node);
-  const isExpanded = isContainer && expanded.has(node.id);
-  const comma = node.isLast ? "" : ",";
-  const hasChildren = node.childIds.length > 0;
-  const toggleHtml = hasChildren
-    ? `<span class="jv-toggle">▶</span>`
-    : `<span class="jv-indent-spacer"></span>`;
-
   line.className = "jv-line";
-  if (isContainer && !isExpanded) line.classList.add("jv-collapsed");
+
+  const guides = document.createElement("span");
+  guides.className = "jv-guides";
+
+  const toggle = document.createElement("span");
+
+  const keySpan = document.createElement("span");
+  keySpan.className = "jv-key";
+  keySpan.hidden = true;
+
+  const keyPunct = document.createElement("span");
+  keyPunct.className = "jv-punctuation";
+  keyPunct.textContent = ": ";
+  keyPunct.hidden = true;
+
+  const preview = document.createElement("span");
+  preview.className = "jv-preview";
+  preview.hidden = true;
+
+  const bracketOpen = document.createElement("span");
+  bracketOpen.className = "jv-bracket";
+
+  const count = document.createElement("span");
+  count.className = "jv-count";
+  count.hidden = true;
+
+  const bracketClose = document.createElement("span");
+  bracketClose.className = "jv-bracket";
+
+  const previewComma = document.createElement("span");
+  previewComma.className = "jv-punctuation";
+
+  preview.append(bracketOpen, count, bracketClose, previewComma);
+
+  const leaf = document.createElement("span");
+  leaf.hidden = true;
+
+  const leafValue = document.createElement("span");
+
+  const leafComma = document.createElement("span");
+  leafComma.className = "jv-punctuation";
+
+  leaf.append(leafValue, leafComma);
+
+  const actions = document.createElement("span");
+  actions.className = "jv-inline-actions";
+
+  const actionChildren = document.createElement("button");
+  actionChildren.className = "jv-action-children";
+  actionChildren.title = "Expand/collapse all children";
+  actionChildren.textContent = "⇕ children";
+  actionChildren.hidden = true;
+
+  const actionCopy = document.createElement("button");
+  actionCopy.className = "jv-action-copy-node";
+  actionCopy.title = "Copy node value";
+  actionCopy.textContent = "⧉ copy";
+
+  actions.append(actionChildren, actionCopy);
+
+  line.append(guides, toggle, keySpan, keyPunct, preview, leaf, actions);
+
+  return {
+    line,
+    toggle,
+    keySpan,
+    keyPunct,
+    preview,
+    bracketOpen,
+    count,
+    bracketClose,
+    previewComma,
+    leaf,
+    leafValue,
+    leafComma,
+    actionChildren,
+    lastNodeId: -1,
+    lastIsExpanded: false,
+  };
+}
+
+const URL_DETECT_MAX = 512;
+const STRING_DISPLAY_MAX = 500;
+
+function applyLeafValue(span: HTMLSpanElement, value: JsonValue): void {
+  if (typeof value === "string") {
+    span.className = "jv-string";
+    if (value.length < URL_DETECT_MAX && URL_PATTERN.test(value)) {
+      const a = document.createElement("a");
+      a.className = "jv-link";
+      a.rel = "noopener noreferrer";
+      a.href = value;
+      a.textContent = value;
+      span.replaceChildren('"', a, '"');
+    } else if (value.length > STRING_DISPLAY_MAX) {
+      span.textContent = `"${value.slice(0, STRING_DISPLAY_MAX)}…" (${value.length.toLocaleString()} chars)`;
+    } else {
+      span.textContent = `"${value}"`;
+    }
+    return;
+  }
+  if (typeof value === "number") {
+    span.className = "jv-number";
+    span.textContent = String(value);
+    return;
+  }
+  if (typeof value === "boolean") {
+    span.className = "jv-bool";
+    span.textContent = String(value);
+    return;
+  }
+  span.className = "jv-null";
+  span.textContent = "null";
+}
+
+function applyPoolRow(row: PoolRow, node: JsonNode, isExpanded: boolean): void {
+  if (row.lastNodeId === node.id && row.lastIsExpanded === isExpanded) {
+    return;
+  }
+  const isContainer = node.type === "object" || node.type === "array";
+  // If only expansion state changed (same node), only update collapsed class.
+  if (row.lastNodeId === node.id) {
+    if (isContainer) {
+      row.line.classList.toggle("jv-collapsed", !isExpanded);
+    }
+    row.lastIsExpanded = isExpanded;
+    return;
+  }
+  const line = row.line;
   line.dataset.nodeId = String(node.id);
   line.dataset.path = node.path;
   line.dataset.depth = String(node.depth);
   line.style.setProperty("--jv-depth", String(node.depth));
 
-  const childrenActionHtml = node.hasNestedContainers
-    ? `<button class="jv-action-children" title="Expand/collapse all children">⇕ children</button>`
-    : "";
-  const actionsHtml = `<span class="jv-inline-actions">${childrenActionHtml}<button class="jv-action-copy-node" title="Copy node value">⧉ copy</button></span>`;
+  const hasChildren = node.childIds.length > 0;
 
-  if (isContainer) {
-    const openBracket = node.type === "array" ? "[" : "{";
-    const closeBracket = node.type === "array" ? "]" : "}";
-    const countHtml = node.label
-      ? ` <span class="jv-count">${escapeHtml(node.label)}</span> `
-      : "";
-    line.innerHTML = `<span class="jv-guides"></span>${toggleHtml}${keyHtml(node)}<span class="jv-preview"><span class="jv-bracket">${openBracket}</span>${countHtml}<span class="jv-bracket">${closeBracket}</span><span class="jv-punctuation">${comma}</span></span>${actionsHtml}`;
+  line.className = isContainer && !isExpanded ? "jv-line jv-collapsed" : "jv-line";
+
+  if (hasChildren) {
+    if (row.toggle.className !== "jv-toggle") row.toggle.className = "jv-toggle";
+    if (row.toggle.textContent !== "▶") row.toggle.textContent = "▶";
   } else {
-    line.innerHTML = `<span class="jv-guides"></span>${toggleHtml}${keyHtml(node)}${renderValue(node.value)}<span class="jv-punctuation">${comma}</span>${actionsHtml}`;
+    if (row.toggle.className !== "jv-indent-spacer") {
+      row.toggle.className = "jv-indent-spacer";
+    }
+    if (row.toggle.textContent !== "") row.toggle.textContent = "";
   }
 
-  return line;
+  if (node.key === null) {
+    row.keySpan.hidden = true;
+    row.keyPunct.hidden = true;
+  } else {
+    row.keySpan.textContent = node.isArrayElement
+      ? String(node.key)
+      : `"${node.key}"`;
+    row.keySpan.hidden = false;
+    row.keyPunct.hidden = false;
+  }
+
+  const comma = node.isLast ? "" : ",";
+
+  if (isContainer) {
+    row.preview.hidden = false;
+    row.leaf.hidden = true;
+    row.bracketOpen.textContent = node.type === "array" ? "[" : "{";
+    row.bracketClose.textContent = node.type === "array" ? "]" : "}";
+    if (node.label) {
+      row.count.textContent = ` ${node.label} `;
+      row.count.hidden = false;
+    } else {
+      row.count.hidden = true;
+    }
+    row.previewComma.textContent = comma;
+  } else {
+    row.preview.hidden = true;
+    row.leaf.hidden = false;
+    applyLeafValue(row.leafValue, node.value);
+    row.leafComma.textContent = comma;
+  }
+
+  row.actionChildren.hidden = !node.hasNestedContainers;
+  row.lastNodeId = node.id;
+  row.lastIsExpanded = isExpanded;
 }
 
 export interface TreeSearchState {
@@ -137,35 +274,206 @@ export function createTreeView(
   container.appendChild(rowsLayer);
   const searchIndex = options?.searchIndex ?? createLocalTreeSearchIndex(model);
 
-  function createExpandedSet(initialExpansionDepth?: number | null): Set<number> {
-    if (initialExpansionDepth === null || initialExpansionDepth === undefined) {
-      return new Set<number>(
-        model.nodes.filter((node) => node.childIds.length > 0).map((node) => node.id)
-      );
-    }
+  const totalNodes = model.totalNodes;
+  const expanded = new Uint8Array(totalNodes);
+  const subtreeRowCount = new Int32Array(totalNodes);
+  const prefixSumCache = new Map<number, Int32Array>();
 
-    return new Set<number>(
-      model.nodes
-        .filter((node) => node.childIds.length > 0 && node.depth < initialExpansionDepth)
-        .map((node) => node.id)
-    );
+  function invalidatePrefixSum(nodeId: number): void {
+    if (prefixSumCache.size > 0) prefixSumCache.delete(nodeId);
   }
 
-  let expanded = createExpandedSet(options?.initialExpansionDepth);
-  let visibleNodeIds: number[] = [];
-  let visibleIndexById = new Map<number, number>();
-  let renderedExpanded: ReadonlySet<number> = expanded;
+  function getPrefixSums(nodeId: number): Int32Array | null {
+    const childIds = model.nodes[nodeId].childIds;
+    if (childIds.length < PREFIX_SUM_FANOUT_THRESHOLD) return null;
+    const cached = prefixSumCache.get(nodeId);
+    if (cached) return cached;
+    const sums = new Int32Array(childIds.length + 1);
+    let acc = 0;
+    for (let i = 0; i < childIds.length; i += 1) {
+      acc += effectiveRowCount(childIds[i]);
+      sums[i + 1] = acc;
+    }
+    prefixSumCache.set(nodeId, sums);
+    return sums;
+  }
+
+  function setInitialExpansion(initialExpansionDepth?: number | null): void {
+    expanded.fill(0);
+    if (initialExpansionDepth === null || initialExpansionDepth === undefined) {
+      for (let i = 0; i < totalNodes; i += 1) {
+        if (model.nodes[i].childIds.length > 0) expanded[i] = 1;
+      }
+    } else {
+      for (let i = 0; i < totalNodes; i += 1) {
+        const node = model.nodes[i];
+        if (node.childIds.length > 0 && node.depth < initialExpansionDepth) {
+          expanded[i] = 1;
+        }
+      }
+    }
+  }
+
+  function isExpandedBit(nodeId: number): boolean {
+    return expanded[nodeId] === 1;
+  }
+
+  function effectiveRowCount(nodeId: number): number {
+    return expanded[nodeId] === 1 ? subtreeRowCount[nodeId] : 1;
+  }
+
+  function recomputeAllSubtreeCounts(): void {
+    options?.debugHooks?.onVisibleListRecomputed?.();
+    prefixSumCache.clear();
+    for (let i = totalNodes - 1; i >= 0; i -= 1) {
+      const node = model.nodes[i];
+      const childIds = node.childIds;
+      if (childIds.length === 0) {
+        subtreeRowCount[i] = 1;
+        continue;
+      }
+      let sum = 1;
+      for (let c = 0; c < childIds.length; c += 1) {
+        sum += effectiveRowCount(childIds[c]);
+      }
+      subtreeRowCount[i] = sum;
+    }
+  }
+
+  function totalVisibleRows(): number {
+    return effectiveRowCount(model.rootId);
+  }
+
+  function fastForwardChildren(
+    nodeId: number,
+    startChildIndex: number,
+    rowsRemaining: number
+  ): { childIndex: number; rowsConsumed: number } {
+    const childIds = model.nodes[nodeId].childIds;
+    const ps = getPrefixSums(nodeId);
+    if (ps !== null) {
+      const baseSum = ps[startChildIndex];
+      let lo = startChildIndex;
+      let hi = childIds.length;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >>> 1;
+        if (ps[mid] - baseSum <= rowsRemaining) lo = mid;
+        else hi = mid - 1;
+      }
+      return { childIndex: lo, rowsConsumed: ps[lo] - baseSum };
+    }
+    let i = startChildIndex;
+    let consumed = 0;
+    while (i < childIds.length) {
+      const eff = effectiveRowCount(childIds[i]);
+      if (consumed + eff > rowsRemaining) break;
+      consumed += eff;
+      i += 1;
+    }
+    return { childIndex: i, rowsConsumed: consumed };
+  }
+
+  function getWindowNodeIds(start: number, end: number): number[] {
+    const result: number[] = [];
+    const total = totalVisibleRows();
+    if (total === 0 || start >= total || end <= start) return result;
+    const targetEnd = Math.min(end, total);
+
+    let row = 0;
+
+    function visit(nodeId: number): boolean {
+      if (row >= targetEnd) return true;
+      if (row >= start) result.push(nodeId);
+      row += 1;
+      if (row >= targetEnd) return true;
+      if (!isExpandedBit(nodeId)) return false;
+      const childIds = model.nodes[nodeId].childIds;
+      let i = 0;
+      if (row < start) {
+        const skipped = fastForwardChildren(nodeId, 0, start - row);
+        i = skipped.childIndex;
+        row += skipped.rowsConsumed;
+      }
+      while (i < childIds.length && row < targetEnd) {
+        if (visit(childIds[i])) return true;
+        i += 1;
+      }
+      return row >= targetEnd;
+    }
+
+    visit(model.rootId);
+    return result;
+  }
+
+  function rowIndexOf(nodeId: number): number {
+    if (nodeId === model.rootId) return 0;
+    let index = 0;
+    let current = nodeId;
+    while (current !== model.rootId) {
+      const node = model.nodes[current];
+      const parentId = node.parentId;
+      if (parentId === null) return -1;
+      if (!isExpandedBit(parentId)) return -1;
+      const siblingIndex = node.siblingIndex;
+      const ps = getPrefixSums(parentId);
+      if (ps !== null) {
+        index += ps[siblingIndex];
+      } else {
+        const siblings = model.nodes[parentId].childIds;
+        for (let i = 0; i < siblingIndex; i += 1) {
+          index += effectiveRowCount(siblings[i]);
+        }
+      }
+      index += 1;
+      current = parentId;
+    }
+    return index;
+  }
+
+  function applyExpandedDelta(nodeId: number, delta: number): void {
+    let parentId = model.nodes[nodeId].parentId;
+    while (parentId !== null) {
+      subtreeRowCount[parentId] += delta;
+      invalidatePrefixSum(parentId);
+      if (!isExpandedBit(parentId)) break;
+      parentId = model.nodes[parentId].parentId;
+    }
+  }
+
+  function setExpandedAndPropagate(nodeId: number, value: boolean): boolean {
+    const node = model.nodes[nodeId];
+    if (node.childIds.length === 0) return false;
+    const wasExpanded = isExpandedBit(nodeId);
+    if (wasExpanded === value) return false;
+    const oldEff = wasExpanded ? subtreeRowCount[nodeId] : 1;
+    expanded[nodeId] = value ? 1 : 0;
+    const newEff = value ? subtreeRowCount[nodeId] : 1;
+    const delta = newEff - oldEff;
+    if (delta !== 0) applyExpandedDelta(nodeId, delta);
+    return true;
+  }
+
+  setInitialExpansion(options?.initialExpansionDepth);
+  recomputeAllSubtreeCounts();
+
+  const rowPool: PoolRow[] = [];
   const rowByNodeId = new Map<number, HTMLElement>();
-  let renderToken = 0;
   let searchToken = 0;
   let searchMatches: number[] = [];
   let searchMatchSet = new Set<number>();
   let activeSearchIndex = -1;
   let searchQuery = "";
-  let preSearchExpanded: Set<number> | null = null;
-  let searchRevealNodeId: number | null = null;
+  let preSearchExpandedSnapshot: Uint8Array | null = null;
   let pendingScrollNodeId: number | null = null;
   let renderScheduled = false;
+
+  function ensurePoolSize(size: number): void {
+    while (rowPool.length < size) {
+      const row = createPoolRow();
+      rowPool.push(row);
+      rowsLayer.appendChild(row.line);
+    }
+  }
 
   function currentSearchState(): TreeSearchState {
     return {
@@ -185,89 +493,10 @@ export function createTreeView(
     return ancestors;
   }
 
-  function expandedForRender(): ReadonlySet<number> {
-    if (searchRevealNodeId === null) {
-      return expanded;
-    }
-
-    const nextExpanded = new Set(expanded);
-    getAncestorIds(searchRevealNodeId).forEach((ancestorId) => {
-      if (model.nodes[ancestorId].childIds.length > 0) {
-        nextExpanded.add(ancestorId);
-      }
-    });
-    return nextExpanded;
-  }
-
-  function collectExpandedDescendantNodeIds(
-    nodeId: number,
-    currentExpanded: ReadonlySet<number>
-  ): number[] {
-    const descendants: number[] = [];
-    const stack = [...model.nodes[nodeId].childIds].reverse();
-
-    while (stack.length > 0) {
-      const currentNodeId = stack.pop()!;
-      descendants.push(currentNodeId);
-
-      if (!currentExpanded.has(currentNodeId)) continue;
-      const childIds = model.nodes[currentNodeId].childIds;
-      for (let index = childIds.length - 1; index >= 0; index -= 1) {
-        stack.push(childIds[index]);
-      }
-    }
-
-    return descendants;
-  }
-
-  function findVisibleDescendantRange(nodeId: number): { start: number; end: number } {
-    const start = visibleIndexOf(nodeId) + 1;
-    const nodeDepth = model.nodes[nodeId].depth;
-    let end = start;
-
-    while (
-      end < visibleNodeIds.length &&
-      model.nodes[visibleNodeIds[end]].depth > nodeDepth
-    ) {
-      end += 1;
-    }
-
-    return { start, end };
-  }
-
-  async function computeVisibleNodeIds(
-    currentExpanded: ReadonlySet<number>
-  ): Promise<number[]> {
-    options?.debugHooks?.onVisibleListRecomputed?.();
-    const token = ++renderToken;
-    const nextVisibleNodeIds: number[] = [];
-    const stack = [model.rootId];
-
-    while (stack.length > 0) {
-      const nodeId = stack.pop()!;
-      nextVisibleNodeIds.push(nodeId);
-
-      if (nextVisibleNodeIds.length % VISIBLE_ROWS_BATCH_SIZE === 0) {
-        if (token !== renderToken) {
-          return visibleNodeIds;
-        }
-        options?.onRenderStateChange?.(
-          `Preparing ${nextVisibleNodeIds.length.toLocaleString()} expanded rows...`
-        );
-        await nextFrame();
-      }
-
-      if (!currentExpanded.has(nodeId)) continue;
-      const childIds = model.nodes[nodeId].childIds;
-      for (let index = childIds.length - 1; index >= 0; index -= 1) {
-        stack.push(childIds[index]);
-      }
-    }
-
-    return token === renderToken ? nextVisibleNodeIds : visibleNodeIds;
-  }
-
   function applySearchClasses() {
+    for (let i = 0; i < rowPool.length; i += 1) {
+      rowPool[i].line.classList.remove("jv-search-match", "jv-search-active");
+    }
     if (searchMatchSet.size === 0) return;
     rowByNodeId.forEach((row, nodeId) => {
       if (searchMatchSet.has(nodeId)) row.classList.add("jv-search-match");
@@ -278,67 +507,78 @@ export function createTreeView(
     }
   }
 
-  function rebuildVisibleIndex(): void {
-    visibleIndexById = new Map();
-    for (let index = 0; index < visibleNodeIds.length; index += 1) {
-      visibleIndexById.set(visibleNodeIds[index], index);
-    }
-  }
-
-  function setVisibleNodeIds(next: number[]): void {
-    visibleNodeIds = next;
-    rebuildVisibleIndex();
-  }
-
-  function visibleIndexOf(nodeId: number): number {
-    return visibleIndexById.get(nodeId) ?? -1;
-  }
-
-  function scrollToNode(nodeId: number) {
-    const index = visibleIndexOf(nodeId);
+  function scrollToNode(nodeId: number): void {
+    const index = rowIndexOf(nodeId);
     if (index < 0) return;
     const viewportHeight = scrollContainer.clientHeight || window.innerHeight || 800;
+    const totalRows = totalVisibleRows();
+    const virtualHeight = totalRows * VIRTUAL_ROW_HEIGHT;
+    const physicalHeight = Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
+    const scale =
+      virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
+    const physicalRowTop = (index * VIRTUAL_ROW_HEIGHT) / scale;
     const targetTop = Math.max(
       0,
-      index * VIRTUAL_ROW_HEIGHT - viewportHeight / 2 + VIRTUAL_ROW_HEIGHT / 2
+      physicalRowTop - viewportHeight / 2 + VIRTUAL_ROW_HEIGHT / 2
     );
     scrollContainer.scrollTop = targetTop;
   }
 
   function renderWindow(statusMessage?: string | null) {
     renderScheduled = false;
-    rowByNodeId.clear();
 
-    const totalRows = visibleNodeIds.length;
+    const totalRows = totalVisibleRows();
     if (totalRows === 0) {
       spacer.style.height = "0px";
-      rowsLayer.replaceChildren();
+      rowByNodeId.clear();
+      for (let i = 0; i < rowPool.length; i += 1) rowPool[i].line.hidden = true;
       options?.onRenderStateChange?.(statusMessage ?? "");
       return;
     }
 
     const viewportHeight = scrollContainer.clientHeight || window.innerHeight || 800;
-    const scrollTop = scrollContainer.scrollTop;
+    const virtualHeight = totalRows * VIRTUAL_ROW_HEIGHT;
+    const physicalHeight = Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
+    spacer.style.height = `${physicalHeight}px`;
+
+    const scale =
+      virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
+
+    const maxScroll = Math.max(0, physicalHeight - viewportHeight);
+    let scrollTop = scrollContainer.scrollTop;
+    if (scrollTop > maxScroll) {
+      scrollTop = maxScroll;
+      scrollContainer.scrollTop = maxScroll;
+    }
+
+    const virtualScrollTop = scrollTop * scale;
+    const virtualViewportHeight = viewportHeight * scale;
     const startIndex = Math.max(
       0,
-      Math.floor(scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN
+      Math.floor(virtualScrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN
     );
     const endIndex = Math.min(
       totalRows,
-      Math.ceil((scrollTop + viewportHeight) / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN
+      Math.ceil((virtualScrollTop + virtualViewportHeight) / VIRTUAL_ROW_HEIGHT) +
+        VIRTUAL_OVERSCAN
     );
-    const offsetTop = startIndex * VIRTUAL_ROW_HEIGHT;
+    const offsetTop = (startIndex * VIRTUAL_ROW_HEIGHT) / scale;
 
-    spacer.style.height = `${totalRows * VIRTUAL_ROW_HEIGHT}px`;
     rowsLayer.style.transform = `translateY(${offsetTop}px)`;
 
-    const fragment = document.createDocumentFragment();
-    visibleNodeIds.slice(startIndex, endIndex).forEach((nodeId) => {
-      const row = renderRow(model.nodes[nodeId], renderedExpanded);
-      rowByNodeId.set(nodeId, row);
-      fragment.appendChild(row);
-    });
-    rowsLayer.replaceChildren(fragment);
+    const nodeIds = getWindowNodeIds(startIndex, endIndex);
+    ensurePoolSize(nodeIds.length);
+    rowByNodeId.clear();
+    for (let i = 0; i < nodeIds.length; i += 1) {
+      const nodeId = nodeIds[i];
+      const row = rowPool[i];
+      applyPoolRow(row, model.nodes[nodeId], isExpandedBit(nodeId));
+      row.line.hidden = false;
+      rowByNodeId.set(nodeId, row.line);
+    }
+    for (let i = nodeIds.length; i < rowPool.length; i += 1) {
+      rowPool[i].line.hidden = true;
+    }
     applySearchClasses();
 
     if (pendingScrollNodeId !== null) {
@@ -364,163 +604,105 @@ export function createTreeView(
     });
   }
 
-  async function render(scrollToNodeId: number | null = null): Promise<void> {
-    renderedExpanded = expandedForRender();
-    setVisibleNodeIds(await computeVisibleNodeIds(renderedExpanded));
+  function render(scrollToNodeId: number | null = null): Promise<void> {
     pendingScrollNodeId = scrollToNodeId;
     if (scrollToNodeId !== null) {
       scrollToNode(scrollToNodeId);
     }
     renderWindow();
+    return Promise.resolve();
   }
 
-  function commitVisibleNodeIds(
-    nextVisibleNodeIds: number[],
-    scrollToNodeId: number | null = null,
-    statusMessage?: string | null
-  ) {
-    renderedExpanded = expandedForRender();
-    setVisibleNodeIds(nextVisibleNodeIds);
-    pendingScrollNodeId = scrollToNodeId;
-    if (scrollToNodeId !== null) {
-      scrollToNode(scrollToNodeId);
-    }
-    renderWindow(statusMessage);
+  function snapshotExpanded(): Uint8Array {
+    return new Uint8Array(expanded);
   }
 
-  async function expandAllProgressively(nextExpanded: Set<number>): Promise<void> {
-    expanded = nextExpanded;
-    const allVisibleNodeIds = model.nodes.map((node) => node.id);
-    const totalRows = allVisibleNodeIds.length;
-
-    for (let end = EXPAND_ALL_BATCH_SIZE; end < totalRows; end += EXPAND_ALL_BATCH_SIZE) {
-      commitVisibleNodeIds(
-        allVisibleNodeIds.slice(0, end),
-        null,
-        `Expanding ${end.toLocaleString()} / ${totalRows.toLocaleString()} rows...`
-      );
-      await nextFrame();
-    }
-
-    commitVisibleNodeIds(allVisibleNodeIds);
+  function restoreExpanded(snapshot: Uint8Array): void {
+    expanded.set(snapshot);
+    recomputeAllSubtreeCounts();
   }
 
-  async function revealNode(nodeId: number): Promise<void> {
-    searchRevealNodeId = nodeId;
-    await render(nodeId);
-  }
-
-  async function applyExpandedState(
-    nextExpanded: Set<number>,
-    applyOptions?: {
-      scrollToNodeId?: number | null;
-      visibleNodeIds?: number[];
+  function revealNode(nodeId: number): void {
+    const ancestors = getAncestorIds(nodeId);
+    ancestors.reverse();
+    for (let i = 0; i < ancestors.length; i += 1) {
+      const ancestorId = ancestors[i];
+      if (model.nodes[ancestorId].childIds.length === 0) continue;
+      if (isExpandedBit(ancestorId)) continue;
+      setExpandedAndPropagate(ancestorId, true);
     }
-  ): Promise<void> {
-    expanded = nextExpanded;
-    if (applyOptions?.visibleNodeIds) {
-      commitVisibleNodeIds(
-        applyOptions.visibleNodeIds,
-        applyOptions?.scrollToNodeId ?? null
-      );
-      return;
-    }
-    await render(applyOptions?.scrollToNodeId ?? null);
+    pendingScrollNodeId = nodeId;
+    scrollToNode(nodeId);
+    renderWindow();
   }
 
   const controller: TreeViewController = {
     render,
 
     async collapseToLevel(targetLevel: number): Promise<void> {
-      const nextExpanded = new Set<number>();
-      const nextVisibleNodeIds: number[] = [];
-      for (const node of model.nodes) {
-        if (node.depth <= targetLevel) nextVisibleNodeIds.push(node.id);
-        if (node.childIds.length > 0 && node.depth < targetLevel) {
-          nextExpanded.add(node.id);
-        }
+      for (let i = 0; i < totalNodes; i += 1) {
+        const node = model.nodes[i];
+        expanded[i] =
+          node.childIds.length > 0 && node.depth < targetLevel ? 1 : 0;
       }
-      if (searchRevealNodeId !== null) {
-        await applyExpandedState(nextExpanded);
-        return;
-      }
-      await applyExpandedState(nextExpanded, { visibleNodeIds: nextVisibleNodeIds });
+      recomputeAllSubtreeCounts();
+      pendingScrollNodeId = null;
+      renderWindow();
     },
 
     async expandAll(): Promise<void> {
-      const nextExpanded = new Set<number>(
-        model.nodes.filter((node) => node.childIds.length > 0).map((node) => node.id)
-      );
-      if (searchRevealNodeId !== null) {
-        await applyExpandedState(nextExpanded);
-        return;
+      for (let i = 0; i < totalNodes; i += 1) {
+        expanded[i] = model.nodes[i].childIds.length > 0 ? 1 : 0;
       }
-      await expandAllProgressively(nextExpanded);
+      recomputeAllSubtreeCounts();
+      pendingScrollNodeId = null;
+      renderWindow();
     },
 
     async toggleNode(nodeId: number): Promise<void> {
-      if (model.nodes[nodeId].childIds.length === 0) return;
-      const nextExpanded = new Set(expanded);
-
-      if (nextExpanded.has(nodeId)) {
-        nextExpanded.delete(nodeId);
-        if (searchRevealNodeId === null) {
-          const nextVisibleNodeIds = [...visibleNodeIds];
-          const { start, end } = findVisibleDescendantRange(nodeId);
-          nextVisibleNodeIds.splice(start, end - start);
-          await applyExpandedState(nextExpanded, {
-            scrollToNodeId: nodeId,
-            visibleNodeIds: nextVisibleNodeIds,
-          });
-          return;
-        }
-      } else {
-        nextExpanded.add(nodeId);
-        if (searchRevealNodeId === null) {
-          const nextVisibleNodeIds = [...visibleNodeIds];
-          const insertAt = visibleIndexOf(nodeId) + 1;
-          nextVisibleNodeIds.splice(
-            insertAt,
-            0,
-            ...collectExpandedDescendantNodeIds(nodeId, nextExpanded)
-          );
-          await applyExpandedState(nextExpanded, {
-            scrollToNodeId: nodeId,
-            visibleNodeIds: nextVisibleNodeIds,
-          });
-          return;
-        }
-      }
-      await applyExpandedState(nextExpanded, { scrollToNodeId: nodeId });
+      const node = model.nodes[nodeId];
+      if (node.childIds.length === 0) return;
+      const wasExpanded = isExpandedBit(nodeId);
+      setExpandedAndPropagate(nodeId, !wasExpanded);
+      pendingScrollNodeId = nodeId;
+      scrollToNode(nodeId);
+      renderWindow();
     },
 
     async toggleAllChildren(nodeId: number): Promise<void> {
       const node = model.nodes[nodeId];
       if (node.childIds.length === 0) return;
 
-      function collectDescendantContainers(currentNodeId: number): number[] {
-        return model.nodes[currentNodeId].childIds.flatMap((childId) => {
-          const child = model.nodes[childId];
-          if (!isContainerNode(child)) return [];
-          return [childId, ...collectDescendantContainers(childId)];
-        });
+      const descendantContainers: number[] = [];
+      const stack: number[] = [...node.childIds];
+      while (stack.length > 0) {
+        const id = stack.pop()!;
+        if (!isContainerNode(model.nodes[id])) continue;
+        descendantContainers.push(id);
+        const ch = model.nodes[id].childIds;
+        for (let i = 0; i < ch.length; i += 1) stack.push(ch[i]);
       }
 
-      const descendantContainers = collectDescendantContainers(nodeId);
-      const shouldExpand = descendantContainers.some((childId) => !expanded.has(childId));
-      const nextExpanded = new Set(expanded);
-
-      descendantContainers.forEach((childId) => {
-        if (model.nodes[childId].childIds.length === 0) return;
-        if (shouldExpand) {
-          nextExpanded.add(childId);
-        } else {
-          nextExpanded.delete(childId);
+      let shouldExpand = false;
+      for (let i = 0; i < descendantContainers.length; i += 1) {
+        if (!isExpandedBit(descendantContainers[i])) {
+          shouldExpand = true;
+          break;
         }
-      });
+      }
 
-      nextExpanded.add(nodeId);
-      await applyExpandedState(nextExpanded, { scrollToNodeId: nodeId });
+      // Bulk set expanded then recompute (cheaper than incremental for big subtrees)
+      for (let i = 0; i < descendantContainers.length; i += 1) {
+        const id = descendantContainers[i];
+        if (model.nodes[id].childIds.length === 0) continue;
+        expanded[id] = shouldExpand ? 1 : 0;
+      }
+      expanded[nodeId] = 1;
+      recomputeAllSubtreeCounts();
+
+      pendingScrollNodeId = nodeId;
+      scrollToNode(nodeId);
+      renderWindow();
     },
 
     async search(query: string): Promise<TreeSearchState> {
@@ -530,8 +712,8 @@ export function createTreeView(
         return controller.clearSearch();
       }
 
-      if (preSearchExpanded === null) {
-        preSearchExpanded = new Set(expanded);
+      if (preSearchExpandedSnapshot === null) {
+        preSearchExpandedSnapshot = snapshotExpanded();
       }
 
       searchQuery = query;
@@ -548,10 +730,9 @@ export function createTreeView(
       activeSearchIndex = searchMatches.length > 0 ? 0 : -1;
 
       if (activeSearchIndex >= 0) {
-        await revealNode(searchMatches[activeSearchIndex]);
+        revealNode(searchMatches[activeSearchIndex]);
       } else {
-        searchRevealNodeId = null;
-        await render();
+        renderWindow();
       }
 
       options?.onRenderStateChange?.("");
@@ -562,7 +743,7 @@ export function createTreeView(
       if (searchMatches.length === 0) return currentSearchState();
       activeSearchIndex =
         (activeSearchIndex + delta + searchMatches.length) % searchMatches.length;
-      await revealNode(searchMatches[activeSearchIndex]);
+      revealNode(searchMatches[activeSearchIndex]);
       return currentSearchState();
     },
 
@@ -572,14 +753,14 @@ export function createTreeView(
       searchMatches = [];
       searchMatchSet = new Set();
       activeSearchIndex = -1;
-      searchRevealNodeId = null;
 
-      if (preSearchExpanded !== null) {
-        expanded = new Set(preSearchExpanded);
-        preSearchExpanded = null;
+      if (preSearchExpandedSnapshot !== null) {
+        restoreExpanded(preSearchExpandedSnapshot);
+        preSearchExpandedSnapshot = null;
       }
 
-      await render();
+      pendingScrollNodeId = null;
+      renderWindow();
       options?.onRenderStateChange?.("");
       return currentSearchState();
     },

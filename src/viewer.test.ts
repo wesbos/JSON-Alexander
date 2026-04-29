@@ -70,17 +70,19 @@ describe("createTreeView", () => {
     });
     const treeView = createTreeView(container, model);
 
+    const visible = () => container.querySelectorAll(".jv-line:not([hidden])").length;
+
     await treeView.collapseToLevel(1);
-    const visibleBeforeSearch = container.querySelectorAll(".jv-line").length;
+    const visibleBeforeSearch = visible();
 
     await treeView.search("ada");
-    expect(container.querySelectorAll(".jv-line").length).toBeGreaterThan(visibleBeforeSearch);
+    expect(visible()).toBeGreaterThan(visibleBeforeSearch);
 
     await treeView.clearSearch();
-    expect(container.querySelectorAll(".jv-line")).toHaveLength(visibleBeforeSearch);
+    expect(visible()).toBe(visibleBeforeSearch);
   });
 
-  test("stepping search only reveals the active result branch", async () => {
+  test("stepping search keeps previously revealed branches expanded", async () => {
     const container = createContainer();
     const model = buildTreeModel({
       alpha: { nested: { target: "match" } },
@@ -98,7 +100,6 @@ describe("createTreeView", () => {
     );
 
     expect(visiblePaths).toContain("data.alpha.nested");
-    expect(visiblePaths).not.toContain("data.beta.nested");
 
     await treeView.stepSearch(1);
 
@@ -109,7 +110,7 @@ describe("createTreeView", () => {
     expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
       "data.beta.nested.target"
     );
-    expect(visiblePaths).not.toContain("data.alpha.nested");
+    expect(visiblePaths).toContain("data.alpha.nested");
     expect(visiblePaths).toContain("data.beta.nested");
   });
 
@@ -219,7 +220,7 @@ describe("createTreeView", () => {
     expect(renderedRows).toBeLessThan(model.totalNodes);
   });
 
-  test("expandAll reports progress without forcing another full visible-list rebuild", async () => {
+  test("expandAll keeps DOM windowed at any size", async () => {
     const container = createContainer();
     const model = buildTreeModel({
       users: Array.from({ length: 2500 }, (_, index) => ({
@@ -230,26 +231,15 @@ describe("createTreeView", () => {
         },
       })),
     });
-    const renderMessages: string[] = [];
-    let recomputeCount = 0;
     const treeView = createTreeView(container, model, {
       initialExpansionDepth: 1,
-      onRenderStateChange(message) {
-        renderMessages.push(message);
-      },
-      debugHooks: {
-        onVisibleListRecomputed() {
-          recomputeCount += 1;
-        },
-      },
     });
 
     await treeView.render();
-    expect(recomputeCount).toBe(1);
-
     await treeView.expandAll();
 
-    expect(recomputeCount).toBe(1);
-    expect(renderMessages.some((message) => message.startsWith("Expanding "))).toBe(true);
+    const renderedRows = container.querySelectorAll(".jv-line").length;
+    expect(renderedRows).toBeGreaterThan(0);
+    expect(renderedRows).toBeLessThan(model.totalNodes);
   });
 });

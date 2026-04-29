@@ -39,9 +39,11 @@ html:has(#jv-root) {
   line-height: 1.6;
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 #jv-root[data-custom-cursor="true"],
@@ -130,11 +132,23 @@ html:has(#jv-root) {
   gap: 2px;
 }
 
-#jv-search {
+#jv-search-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 16px;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: min(420px, 100%);
+  padding: 6px 8px;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+}
+
+#jv-search-panel[hidden] {
+  display: none;
 }
 
 #jv-search-input {
@@ -158,6 +172,30 @@ html:has(#jv-root) {
   color: var(--text-muted);
   font-size: 12px;
   text-align: right;
+}
+
+#jv-search-panel button {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--btn-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+#jv-search-panel button:hover {
+  background: var(--btn-hover);
+}
+
+#jv-search-panel button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+#jv-search-toggle {
+  font-size: 14px;
 }
 
 #jv-toolbar button {
@@ -187,7 +225,8 @@ html:has(#jv-root) {
 }
 
 #jv-content {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   padding: 16px;
   overflow: auto;
   position: relative;
@@ -205,7 +244,6 @@ html:has(#jv-root) {
 
 #jv-tree {
   position: relative;
-  min-height: 100%;
   white-space: nowrap;
 }
 
@@ -235,7 +273,6 @@ html:has(#jv-root) {
   top: 0;
   left: 0;
   right: 0;
-  will-change: transform;
 }
 
 .jv-guides {
@@ -388,16 +425,28 @@ html:has(#jv-root) {
 }
 
 #jv-path-display {
-  display: none;
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  max-width: 50vw;
+  max-width: calc(100vw - 32px);
   overflow: hidden;
+  padding: 4px 8px;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 50;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #jv-path-display.jv-visible {
-  display: inline-flex;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 #jv-path-display.jv-pinned #jv-path-text {
@@ -505,12 +554,14 @@ html:has(#jv-root) {
 }
 
 @media (max-width: 760px) {
-  #jv-search {
-    min-width: 100%;
-    order: 10;
+  #jv-search-panel {
+    left: 16px;
+    right: 16px;
   }
 
   #jv-search-input {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    width: auto;
   }
 }

@@ -92,13 +92,7 @@ async function init(): Promise<void> {
       <span id="jv-info"></span>
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-copy" title="Copy path">Copy</button></span>
       <div id="jv-levels"></div>
-      <div id="jv-search">
-        <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false">
-        <span id="jv-search-status"></span>
-        <button id="jv-search-prev" title="Previous result">↑</button>
-        <button id="jv-search-next" title="Next result">↓</button>
-        <button id="jv-search-clear" title="Clear search">×</button>
-      </div>
+      <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
@@ -113,6 +107,13 @@ async function init(): Promise<void> {
           <label><input type="checkbox" id="jv-cursor-toggle"> Custom cursor</label>
         </div>
       </div>
+    </div>
+    <div id="jv-search-panel" hidden>
+      <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false">
+      <span id="jv-search-status"></span>
+      <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
+      <button id="jv-search-next" title="Next result (Enter)">↓</button>
+      <button id="jv-search-clear" title="Close (Esc)">×</button>
     </div>
     <div id="jv-content">
       <div id="jv-tree"></div>
@@ -183,14 +184,6 @@ async function init(): Promise<void> {
   const { maxDepth, totalNodes } = treeView.getStats();
   info.textContent = `${totalNodes} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
   await treeView.render();
-
-  if (searchIndex.prewarm) {
-    const schedule =
-      typeof window.requestIdleCallback === "function"
-        ? (cb: () => void) => window.requestIdleCallback(cb, { timeout: 2000 })
-        : (cb: () => void) => window.setTimeout(cb, 200);
-    schedule(() => searchIndex.prewarm?.());
-  }
 
   const levelCount = Math.min(maxDepth, 8);
   for (let i = 1; i <= levelCount; i++) {
@@ -344,6 +337,32 @@ async function init(): Promise<void> {
     }, 180);
   });
 
+  const searchPanel = document.getElementById("jv-search-panel")!;
+  const searchToggleBtn = document.getElementById("jv-search-toggle")!;
+
+  function openSearchPanel(): void {
+    searchPanel.hidden = false;
+    searchInput.focus();
+    searchInput.select();
+  }
+
+  function closeSearchPanel(): void {
+    searchPanel.hidden = true;
+    if (searchTimer !== null) {
+      window.clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    if (searchInput.value || treeView.getSearchState().query) {
+      searchInput.value = "";
+      void treeView.clearSearch().then(updateSearchUi);
+    }
+  }
+
+  searchToggleBtn.addEventListener("click", () => {
+    if (searchPanel.hidden) openSearchPanel();
+    else closeSearchPanel();
+  });
+
   searchInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -356,14 +375,9 @@ async function init(): Promise<void> {
       return;
     }
 
-    if (e.key === "Escape" && searchInput.value) {
+    if (e.key === "Escape") {
       e.preventDefault();
-      searchInput.value = "";
-      if (searchTimer !== null) {
-        window.clearTimeout(searchTimer);
-        searchTimer = null;
-      }
-      void treeView.clearSearch().then(updateSearchUi);
+      closeSearchPanel();
     }
   });
 
@@ -380,21 +394,21 @@ async function init(): Promise<void> {
   });
 
   searchClearBtn.addEventListener("click", () => {
-    searchInput.value = "";
-    if (searchTimer !== null) {
-      window.clearTimeout(searchTimer);
-      searchTimer = null;
-    }
-    void treeView.clearSearch().then(updateSearchUi);
+    closeSearchPanel();
   });
 
   document.addEventListener("keydown", (e) => {
     const isFindShortcut =
       (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f";
-    if (!isFindShortcut || currentView !== "tree") return;
-    e.preventDefault();
-    searchInput.focus();
-    searchInput.select();
+    if (isFindShortcut && currentView === "tree") {
+      e.preventDefault();
+      openSearchPanel();
+      return;
+    }
+    if (e.key === "Escape" && !searchPanel.hidden) {
+      e.preventDefault();
+      closeSearchPanel();
+    }
   });
 
   updateSearchUi();

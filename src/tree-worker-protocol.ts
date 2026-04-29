@@ -8,7 +8,7 @@ export interface WorkerSearchNodeMessage {
   isContainer: boolean;
 }
 
-export interface WorkerInitMessage {
+interface WorkerInitMessage {
   type: "init";
   nodes: WorkerSearchNodeMessage[];
 }
@@ -19,7 +19,7 @@ export interface WorkerSearchMessage {
   query: string;
 }
 
-export interface WorkerSearchResultMessage {
+interface WorkerSearchResultMessage {
   type: "search-result";
   requestId: number;
   matches: number[];

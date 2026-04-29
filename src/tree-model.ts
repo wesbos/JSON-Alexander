@@ -6,7 +6,7 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type JsonNodeType =
+type JsonNodeType =
   | "object"
   | "array"
   | "string"
@@ -17,6 +17,7 @@ export type JsonNodeType =
 export interface JsonNode {
   id: number;
   parentId: number | null;
+  siblingIndex: number;
   childIds: number[];
   key: string | number | null;
   path: string;
@@ -127,6 +128,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
     const node: JsonNode = {
       id: nodes.length,
       parentId,
+      siblingIndex: 0,
       childIds: [],
       key,
       path,
@@ -159,6 +161,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
           true,
           index === value.length - 1
         );
+        nodes[childId].siblingIndex = index;
         node.childIds.push(childId);
       });
     } else if (value !== null && typeof value === "object") {
@@ -173,6 +176,7 @@ export function buildTreeModel(data: JsonValue): TreeModel {
           false,
           index === keys.length - 1
         );
+        nodes[childId].siblingIndex = index;
         node.childIds.push(childId);
       });
     }
