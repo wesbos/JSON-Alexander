@@ -398,13 +398,25 @@ async function init(): Promise<void> {
   });
 
   document.addEventListener("keydown", (e) => {
-    const isFindShortcut =
-      (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f";
-    if (isFindShortcut && currentView === "tree") {
+    const cmdOrCtrl = (e.metaKey || e.ctrlKey) && !e.altKey;
+    const key = e.key.toLowerCase();
+
+    if (cmdOrCtrl && !e.shiftKey && key === "f" && currentView === "tree") {
       e.preventDefault();
       openSearchPanel();
       return;
     }
+
+    if (cmdOrCtrl && key === "g" && currentView === "tree") {
+      e.preventDefault();
+      if (treeView.getSearchState().matchCount === 0) {
+        openSearchPanel();
+        return;
+      }
+      void treeView.stepSearch(e.shiftKey ? -1 : 1).then(updateSearchUi);
+      return;
+    }
+
     if (e.key === "Escape" && !searchPanel.hidden) {
       e.preventDefault();
       closeSearchPanel();

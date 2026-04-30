@@ -82,6 +82,50 @@ describe("createTreeView", () => {
     expect(visible()).toBe(visibleBeforeSearch);
   });
 
+  test("changing depth keeps active search match revealed", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { deep: { target: "match" } } },
+      beta: { other: 1 },
+    });
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+    await treeView.search("match");
+    expect(container.querySelector<HTMLElement>(".jv-search-active")?.dataset.path).toBe(
+      "data.alpha.nested.deep.target"
+    );
+
+    await treeView.collapseToLevel(1);
+
+    const activeRow = container.querySelector<HTMLElement>(".jv-search-active");
+    expect(activeRow?.dataset.path).toBe("data.alpha.nested.deep.target");
+
+    const visiblePaths = Array.from(
+      container.querySelectorAll<HTMLElement>(".jv-line:not([hidden])")
+    ).map((row) => row.dataset.path);
+    expect(visiblePaths).toContain("data.alpha.nested.deep.target");
+  });
+
+  test("clearing search after depth change restores chosen depth, not pre-search", async () => {
+    const container = createContainer();
+    const model = buildTreeModel({
+      alpha: { nested: { target: "match" } },
+      beta: { other: 1 },
+    });
+    const treeView = createTreeView(container, model);
+
+    await treeView.render();
+    await treeView.search("match");
+    await treeView.collapseToLevel(1);
+    await treeView.clearSearch();
+
+    const visiblePaths = Array.from(
+      container.querySelectorAll<HTMLElement>(".jv-line:not([hidden])")
+    ).map((row) => row.dataset.path);
+    expect(visiblePaths).toEqual(["data", "data.alpha", "data.beta"]);
+  });
+
   test("stepping search keeps previously revealed branches expanded", async () => {
     const container = createContainer();
     const model = buildTreeModel({

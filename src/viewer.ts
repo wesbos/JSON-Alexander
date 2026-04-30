@@ -516,10 +516,20 @@ export function createTreeView(
     const physicalHeight = Math.min(virtualHeight, MAX_PHYSICAL_HEIGHT);
     const scale =
       virtualHeight > MAX_PHYSICAL_HEIGHT ? virtualHeight / physicalHeight : 1;
-    const physicalRowTop = (index * VIRTUAL_ROW_HEIGHT) / scale;
+    // When scale > 1 the spacer is compressed but rows render at native height
+    // via translateY(offsetTop). Solve renderWindow's layer formula for the
+    // scrollTop that puts row `index` at viewport center.
+    const overscanComp =
+      scale === 1
+        ? 0
+        : (VIRTUAL_OVERSCAN * VIRTUAL_ROW_HEIGHT * (scale - 1)) /
+          (scale * scale);
     const targetTop = Math.max(
       0,
-      physicalRowTop - viewportHeight / 2 + VIRTUAL_ROW_HEIGHT / 2
+      (index * VIRTUAL_ROW_HEIGHT) / scale +
+        overscanComp -
+        viewportHeight / (2 * scale) +
+        VIRTUAL_ROW_HEIGHT / (2 * scale)
     );
     scrollContainer.scrollTop = targetTop;
   }
@@ -646,8 +656,15 @@ export function createTreeView(
           node.childIds.length > 0 && node.depth < targetLevel ? 1 : 0;
       }
       recomputeAllSubtreeCounts();
-      pendingScrollNodeId = null;
-      renderWindow();
+      if (preSearchExpandedSnapshot !== null) {
+        preSearchExpandedSnapshot = snapshotExpanded();
+      }
+      if (searchMatches.length > 0 && activeSearchIndex >= 0) {
+        revealNode(searchMatches[activeSearchIndex]);
+      } else {
+        pendingScrollNodeId = null;
+        renderWindow();
+      }
     },
 
     async expandAll(): Promise<void> {
@@ -655,8 +672,15 @@ export function createTreeView(
         expanded[i] = model.nodes[i].childIds.length > 0 ? 1 : 0;
       }
       recomputeAllSubtreeCounts();
-      pendingScrollNodeId = null;
-      renderWindow();
+      if (preSearchExpandedSnapshot !== null) {
+        preSearchExpandedSnapshot = snapshotExpanded();
+      }
+      if (searchMatches.length > 0 && activeSearchIndex >= 0) {
+        revealNode(searchMatches[activeSearchIndex]);
+      } else {
+        pendingScrollNodeId = null;
+        renderWindow();
+      }
     },
 
     async toggleNode(nodeId: number): Promise<void> {
