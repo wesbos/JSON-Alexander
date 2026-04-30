@@ -2,18 +2,15 @@ body:has(#jv-root) {
   margin: 0;
 }
 
-/* ── Overscrolling ── */
 html:has(#jv-root) {
   background: #181825;
 }
 
-/* ── Reset ── */
 #jv-root,
 #jv-root * {
   box-sizing: border-box;
 }
 
-/* ── Theme: Dark (default) ── */
 #jv-root {
   --bg: #1e1e2e;
   --bg-toolbar: #181825;
@@ -37,9 +34,23 @@ html:has(#jv-root) {
   --btn-bg: transparent;
   --btn-hover: #45475a;
   --btn-active: #585b70;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-/* ── Theme: Light ── */
+#jv-root[data-custom-cursor="true"],
+#jv-root[data-custom-cursor="true"] * {
+  cursor: var(--cursor-custom, default) !important;
+}
+
 #jv-root[data-theme="light"] {
   --bg: #ffffff;
   --bg-toolbar: #f5f5f5;
@@ -65,7 +76,6 @@ html:has(#jv-root) {
   --btn-active: #bdbdbd;
 }
 
-/* ── Auto theme from system preference ── */
 @media (prefers-color-scheme: light) {
   #jv-root[data-theme="auto"] {
     --bg: #ffffff;
@@ -93,22 +103,6 @@ html:has(#jv-root) {
   }
 }
 
-/* ── Root ── */
-#jv-root {
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  cursor: var(--cursor-custom, default) !important;
-}
-
-#jv-root * {
-  cursor: inherit !important;
-}
-
-/* ── Toolbar ── */
 #jv-toolbar {
   position: sticky;
   top: 0;
@@ -128,9 +122,80 @@ html:has(#jv-root) {
   margin-right: auto;
 }
 
+#jv-render-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 #jv-levels {
   display: flex;
   gap: 2px;
+}
+
+#jv-search-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+}
+
+#jv-search-panel[hidden] {
+  display: none;
+}
+
+#jv-search-input {
+  width: min(320px, 45vw);
+  min-width: 180px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#jv-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+#jv-search-status {
+  min-width: 52px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+#jv-search-panel button {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--btn-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+#jv-search-panel button:hover {
+  background: var(--btn-hover);
+}
+
+#jv-search-panel button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+#jv-search-toggle {
+  font-size: 14px;
 }
 
 #jv-toolbar button {
@@ -155,41 +220,98 @@ html:has(#jv-root) {
   border-color: var(--accent);
 }
 
-/* ── Content area ── */
+#jv-toolbar button:disabled {
+  opacity: 0.55;
+}
+
 #jv-content {
+  flex: 1 1 0;
+  min-height: 0;
   padding: 16px;
-  overflow-x: auto;
+  overflow: auto;
+  position: relative;
 }
 
 #jv-tree,
+#jv-formatted,
 #jv-raw {
+  color: var(--text);
   margin: 0;
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
+}
+
+#jv-tree {
+  position: relative;
+  white-space: nowrap;
+}
+
+#jv-raw,
+#jv-formatted {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: break-all;
 }
 
-/* ── Tree lines ── */
 .jv-line {
   position: relative;
-  padding-left: 20px;
+  padding-left: calc(var(--jv-depth, 0) * 20px + 20px);
   border-radius: 2px;
+  min-height: 24px;
+  line-height: 24px;
+  white-space: nowrap;
 }
 
-/* ── Current line highlight ── */
-.jv-line.jv-current > .jv-children {
-  border-left-color: var(--guide-current);
+.jv-tree-spacer {
+  width: 1px;
+  opacity: 0;
 }
 
-/* ── Ancestor guide highlight ── */
-.jv-line.jv-ancestor > .jv-children {
-  border-left-color: var(--guide-ancestor);
+.jv-tree-rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
 }
 
-/* ── Toggle arrow ── */
+.jv-guides {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--jv-depth, 0) * 20px + 4px);
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 11px,
+    var(--guide) 11px 12px,
+    transparent 12px 20px
+  );
+  pointer-events: none;
+}
+
+.jv-line.jv-current .jv-guides {
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 11px,
+    var(--guide-current) 11px 12px,
+    transparent 12px 20px
+  );
+}
+
+.jv-line.jv-current {
+  background: color-mix(in srgb, var(--guide-current) 22%, transparent);
+}
+
+.jv-line.jv-ancestor .jv-guides {
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 11px,
+    var(--guide-ancestor) 11px 12px,
+    transparent 12px 20px
+  );
+}
+
 .jv-toggle {
   display: inline-block;
   width: 16px;
@@ -211,50 +333,18 @@ html:has(#jv-root) {
   width: 16px;
 }
 
-/* ── Children container ── */
-.jv-children {
-  border-left: 1px solid var(--guide);
-  margin-left: 4px;
-  padding-left: 8px;
-}
-
-.jv-children.jv-collapsed {
-  display: none;
-}
-
-/* ── Inline count (shown when expanded) ── */
 .jv-count {
   color: var(--text-muted);
   font-style: italic;
   font-size: 12px;
 }
 
-.jv-line.jv-collapsed > .jv-count {
-  display: none;
-}
-
-/* ── Preview (shown when collapsed) ── */
 .jv-preview {
-  display: none;
   color: var(--text-muted);
   font-style: italic;
   font-size: 12px;
 }
 
-.jv-line.jv-collapsed > .jv-preview {
-  display: inline;
-}
-
-/* ── Close bracket ── */
-.jv-close {
-  display: block;
-}
-
-.jv-line.jv-collapsed > .jv-close {
-  display: none;
-}
-
-/* ── Inline action buttons ── */
 .jv-inline-actions {
   display: none;
   margin-left: 8px;
@@ -287,7 +377,15 @@ html:has(#jv-root) {
   color: var(--text);
 }
 
-/* ── Syntax colors ── */
+.jv-line.jv-search-match {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.jv-line.jv-search-active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 .jv-key {
   color: var(--key);
 }
@@ -326,18 +424,29 @@ html:has(#jv-root) {
   color: var(--punctuation);
 }
 
-/* ── Path display (toolbar) ── */
 #jv-path-display {
-  display: none;
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  max-width: 50vw;
+  max-width: calc(100vw - 32px);
   overflow: hidden;
+  padding: 4px 8px;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 50;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #jv-path-display.jv-visible {
-  display: inline-flex;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 #jv-path-display.jv-pinned #jv-path-text {
@@ -369,7 +478,6 @@ html:has(#jv-root) {
   color: var(--text);
 }
 
-/* ── View picker ── */
 #jv-view-picker {
   display: flex;
   gap: 0;
@@ -394,13 +502,6 @@ html:has(#jv-root) {
   color: var(--bg);
 }
 
-/* ── View visibility ── */
-#jv-tree,
-#jv-formatted,
-#jv-raw {
-  color: var(--text);
-}
-
 #jv-tree.jv-hidden,
 #jv-formatted.jv-hidden,
 #jv-raw.jv-hidden {
@@ -417,7 +518,6 @@ html:has(#jv-root) {
   display: block;
 }
 
-/* ── Settings ── */
 #jv-settings {
   position: relative;
 }
@@ -451,4 +551,17 @@ html:has(#jv-root) {
 
 #jv-settings-menu input[type="checkbox"] {
   accent-color: var(--accent);
+}
+
+@media (max-width: 760px) {
+  #jv-search-panel {
+    left: 16px;
+    right: 16px;
+  }
+
+  #jv-search-input {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
 }

@@ -1,74 +1,13 @@
+import { buildTreeModel, type JsonValue } from "./tree-model";
+import { createTreeView, setupHoverPath } from "./viewer";
 import {
-  renderTree,
-  collapseToLevel,
-  expandAll,
-  toggleNode,
-  toggleAllChildren,
-  setupHoverPath,
-} from "./viewer";
+  createBestAvailableTreeSearchIndex,
+  createLocalTreeSearchIndex,
+} from "./tree-worker-client";
 import "./styles/viewer.css";
 
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-function parsePath(path: string): string[] {
-  const segments: string[] = [];
-  const matcher = /([^[.\]]+)|\[(\d+|"(?:[^"\\]|\\.)*")\]/g;
-  let match: RegExpExecArray | null = matcher.exec(path);
-
-  while (match) {
-    const dotToken = match[1];
-    const bracketToken = match[2];
-
-    if (dotToken) {
-      segments.push(dotToken);
-    } else if (bracketToken) {
-      if (bracketToken.startsWith('"')) {
-        try {
-          segments.push(JSON.parse(bracketToken) as string);
-        } catch {
-          return [];
-        }
-      } else {
-        segments.push(bracketToken);
-      }
-    }
-
-    match = matcher.exec(path);
-  }
-
-  if (segments[0] === "data") return segments.slice(1);
-  return segments;
-}
-
-function getValueAtPath(source: JsonValue, path: string): JsonValue | undefined {
-  const segments = parsePath(path);
-  if (!segments.length && path !== "data") return;
-
-  let current: JsonValue | undefined = source;
-
-  for (const segment of segments) {
-    if (current === null || typeof current !== "object") return;
-
-    let next: JsonValue | undefined;
-    if (Array.isArray(current)) {
-      if (!/^\d+$/.test(segment)) return;
-      next = current[Number(segment)];
-    } else {
-      next = current[segment];
-    }
-
-    if (next === undefined) return;
-    current = next;
-  }
-
-  return current;
-}
+const LARGE_TREE_NODE_THRESHOLD = 8000;
+const LARGE_TREE_INITIAL_EXPANSION_DEPTH = 2;
 
 function detectJSON(): { data: JsonValue; raw: string } | null {
   const pre = document.querySelector("body > pre");
@@ -82,7 +21,7 @@ function detectJSON(): { data: JsonValue; raw: string } | null {
   if (!raw) return null;
 
   try {
-    const data = JSON.parse(raw);
+    const data = JSON.parse(raw) as JsonValue;
     if (data === null || typeof data !== "object") return null;
     return { data, raw };
   } catch {
@@ -129,16 +68,21 @@ async function init(): Promise<void> {
   if (!result) return;
 
   const { data, raw } = result;
-  const prettyRaw = JSON.stringify(data, null, 2);
+  let prettyRaw: string | null = null;
 
-  // Nuke existing page content
+  function getPrettyRaw(): string {
+    if (prettyRaw === null) {
+      prettyRaw = JSON.stringify(data, null, 2);
+    }
+    return prettyRaw;
+  }
+
   document.documentElement.innerHTML = "";
   const head = document.createElement("head");
   const body = document.createElement("body");
   document.documentElement.appendChild(head);
   document.documentElement.appendChild(body);
 
-  // Build viewer DOM
   const root = document.createElement("div");
   root.id = "jv-root";
   root.dataset.theme = await getTheme();
@@ -148,11 +92,13 @@ async function init(): Promise<void> {
       <span id="jv-info"></span>
       <span id="jv-path-display"><span id="jv-path-text"></span><button id="jv-path-copy" title="Copy path">Copy</button></span>
       <div id="jv-levels"></div>
+      <button id="jv-search-toggle" title="Search (⌘F)">⌕</button>
       <div id="jv-view-picker">
         <button class="jv-view-btn jv-active" data-view="tree">Tree</button>
         <button class="jv-view-btn" data-view="formatted">Formatted</button>
         <button class="jv-view-btn" data-view="raw">Raw</button>
       </div>
+      <span id="jv-render-status"></span>
       <button id="jv-theme-toggle" title="Toggle theme"></button>
       <button id="jv-copy">Copy JSON</button>
       <div id="jv-settings">
@@ -162,8 +108,15 @@ async function init(): Promise<void> {
         </div>
       </div>
     </div>
+    <div id="jv-search-panel" hidden>
+      <input id="jv-search-input" type="search" placeholder="Search keys, values, paths" spellcheck="false">
+      <span id="jv-search-status"></span>
+      <button id="jv-search-prev" title="Previous result (Shift+Enter)">↑</button>
+      <button id="jv-search-next" title="Next result (Enter)">↓</button>
+      <button id="jv-search-clear" title="Close (Esc)">×</button>
+    </div>
     <div id="jv-content">
-      <pre id="jv-tree"></pre>
+      <div id="jv-tree"></div>
       <pre id="jv-formatted"></pre>
       <pre id="jv-raw"></pre>
     </div>
@@ -171,23 +124,18 @@ async function init(): Promise<void> {
 
   body.appendChild(root);
 
-  // Custom cursor (off by default)
   const cursorUrl = chrome.runtime.getURL("pointer-32.png");
   function applyCustomCursor(enabled: boolean) {
     if (enabled) {
       root.style.setProperty("--cursor-custom", `url(${cursorUrl}), default`);
+      root.dataset.customCursor = "true";
     } else {
-      root.style.setProperty("--cursor-custom", "default");
+      root.style.removeProperty("--cursor-custom");
+      delete root.dataset.customCursor;
     }
   }
   applyCustomCursor(await storageGet("jv-custom-cursor", "false") === "true");
 
-  // Re-inject styles (we nuked the head)
-  const style = document.createElement("style");
-  style.textContent = (document.querySelector('style[data-vite-dev-id]') || {} as any).textContent || '';
-  // For production, the CSS is loaded via manifest. We need to re-add the link.
-  // Vite injects CSS as a <style> tag in dev, but for extension we load via manifest.
-  // Since we nuked the HTML, re-request the CSS from the extension.
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.href = chrome.runtime.getURL("content.css");
@@ -199,25 +147,51 @@ async function init(): Promise<void> {
   const pathDisplay = document.getElementById("jv-path-display")!;
   const pathText = document.getElementById("jv-path-text")!;
   const pathCopyBtn = document.getElementById("jv-path-copy")!;
+  const searchInput = document.getElementById("jv-search-input") as HTMLInputElement;
+  const searchStatus = document.getElementById("jv-search-status")!;
+  const searchPrevBtn = document.getElementById("jv-search-prev") as HTMLButtonElement;
+  const searchNextBtn = document.getElementById("jv-search-next") as HTMLButtonElement;
+  const searchClearBtn = document.getElementById("jv-search-clear") as HTMLButtonElement;
   const info = document.getElementById("jv-info")!;
   const levelsContainer = document.getElementById("jv-levels")!;
+  const renderStatus = document.getElementById("jv-render-status")!;
+  const content = document.getElementById("jv-content")!;
+  const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
+  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl };
+  const loadedViews = new Set<string>(["tree"]);
+  let currentView = "tree";
+  let searchTimer: number | null = null;
 
-  // Render tree
-  const { maxDepth, totalKeys } = renderTree(tree, data);
-  info.textContent = `${totalKeys} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
+  renderStatus.textContent = "Indexing JSON...";
+  const model = buildTreeModel(data);
+  const initialExpansionDepth =
+    model.totalNodes > LARGE_TREE_NODE_THRESHOLD
+      ? LARGE_TREE_INITIAL_EXPANSION_DEPTH
+      : null;
+  const searchIndex =
+    typeof Worker === "function"
+      ? createBestAvailableTreeSearchIndex(model)
+      : createLocalTreeSearchIndex(model);
+  const treeView = createTreeView(tree, model, {
+    initialExpansionDepth,
+    scrollContainer: content,
+    searchIndex,
+    onRenderStateChange(message) {
+      renderStatus.textContent = message;
+    },
+  });
 
-  // Formatted and raw views
-  formattedEl.textContent = prettyRaw;
-  rawEl.textContent = raw;
+  const { maxDepth, totalNodes } = treeView.getStats();
+  info.textContent = `${totalNodes} nodes · ${maxDepth} level${maxDepth !== 1 ? "s" : ""} deep`;
+  await treeView.render();
 
-  // Level buttons
   const levelCount = Math.min(maxDepth, 8);
   for (let i = 1; i <= levelCount; i++) {
     const btn = document.createElement("button");
     btn.dataset.level = String(i);
     btn.textContent = String(i);
     btn.addEventListener("click", () => {
-      collapseToLevel(tree, i);
+      void treeView.collapseToLevel(i);
       setActiveLevel(btn);
     });
     levelsContainer.appendChild(btn);
@@ -227,13 +201,23 @@ async function init(): Promise<void> {
   allBtn.textContent = "All";
   allBtn.dataset.action = "expand-all";
   allBtn.addEventListener("click", () => {
-    expandAll(tree);
+    void treeView.expandAll();
     setActiveLevel(allBtn);
   });
   levelsContainer.appendChild(allBtn);
-
-  // Set "All" as initially active
-  setActiveLevel(allBtn);
+  if (initialExpansionDepth !== null) {
+    const initialLevelButton = levelsContainer.querySelector<HTMLElement>(
+      `button[data-level="${initialExpansionDepth}"]`
+    );
+    if (initialLevelButton) {
+      setActiveLevel(initialLevelButton);
+      renderStatus.textContent = `Large JSON: showing ${initialExpansionDepth} levels first. Search covers the full document.`;
+    } else {
+      setActiveLevel(allBtn);
+    }
+  } else {
+    setActiveLevel(allBtn);
+  }
 
   function setActiveLevel(active: HTMLElement) {
     levelsContainer.querySelectorAll("button").forEach((b) =>
@@ -242,34 +226,32 @@ async function init(): Promise<void> {
     active.classList.add("jv-active");
   }
 
-  // Toggle expand/collapse on click
   tree.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
     if (target.classList.contains("jv-toggle") || target.classList.contains("jv-preview")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (line) {
-        toggleNode(line);
+        void treeView.toggleNode(Number(line.dataset.nodeId));
         levelsContainer.querySelectorAll("button").forEach((b) =>
           b.classList.remove("jv-active")
         );
       }
     }
-    // Inline action: expand/collapse all children
+
     if (target.classList.contains("jv-action-children")) {
       const line = target.closest<HTMLElement>(".jv-line");
-      if (line) toggleAllChildren(line);
+      if (line) {
+        void treeView.toggleAllChildren(Number(line.dataset.nodeId));
+      }
     }
-    // Inline action: copy selected node value
+
     if (target.classList.contains("jv-action-copy-node")) {
       const line = target.closest<HTMLElement>(".jv-line");
       if (!line) return;
-      const path = line.dataset.path;
-      if (!path) return;
 
-      const selectedValue = getValueAtPath(data, path);
-      if (selectedValue === undefined) return;
-
+      const selectedValue = treeView.getNodeValue(Number(line.dataset.nodeId));
       navigator.clipboard.writeText(JSON.stringify(selectedValue, null, 2));
+
       const originalLabel = target.textContent;
       target.textContent = "copied!";
       setTimeout(() => {
@@ -278,12 +260,22 @@ async function init(): Promise<void> {
     }
   });
 
-  // View picker
-  const viewBtns = document.querySelectorAll<HTMLElement>(".jv-view-btn");
-  const views: Record<string, HTMLElement> = { tree, formatted: formattedEl, raw: rawEl };
+  function ensureViewContent(name: string) {
+    if (loadedViews.has(name)) return;
+
+    if (name === "formatted") {
+      formattedEl.textContent = getPrettyRaw();
+    } else if (name === "raw") {
+      rawEl.textContent = raw;
+    }
+
+    loadedViews.add(name);
+  }
 
   function setView(name: string) {
-    viewBtns.forEach((b) => b.classList.toggle("jv-active", b.dataset.view === name));
+    currentView = name;
+    ensureViewContent(name);
+    viewBtns.forEach((btn) => btn.classList.toggle("jv-active", btn.dataset.view === name));
     Object.entries(views).forEach(([key, el]) => {
       el.classList.toggle("jv-active", key === name);
       el.classList.toggle("jv-hidden", key !== name);
@@ -294,23 +286,148 @@ async function init(): Promise<void> {
     btn.addEventListener("click", () => setView(btn.dataset.view!));
   });
 
-  // Copy
   document.getElementById("jv-copy")!.addEventListener("click", () => {
-    navigator.clipboard.writeText(prettyRaw).then(() => {
+    navigator.clipboard.writeText(getPrettyRaw()).then(() => {
       const btn = document.getElementById("jv-copy")!;
-      const orig = btn.textContent;
+      const originalText = btn.textContent;
       btn.textContent = "Copied!";
       setTimeout(() => {
-        btn.textContent = orig;
+        btn.textContent = originalText;
       }, 1000);
     });
   });
 
-  // Theme toggle
+  function updateSearchUi() {
+    const state = treeView.getSearchState();
+
+    if (!state.query) {
+      searchStatus.textContent = "";
+    } else if (state.matchCount === 0) {
+      searchStatus.textContent = "0 results";
+    } else {
+      searchStatus.textContent = `${state.activeIndex + 1} of ${state.matchCount}`;
+    }
+
+    const hasResults = state.matchCount > 0;
+    searchPrevBtn.disabled = !hasResults;
+    searchNextBtn.disabled = !hasResults;
+    searchClearBtn.disabled = !state.query;
+  }
+
+  async function runSearch(query: string) {
+    searchTimer = null;
+    await treeView.search(query);
+    updateSearchUi();
+  }
+
+  async function commitSearch(query: string) {
+    if (searchTimer !== null) {
+      window.clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    await runSearch(query);
+  }
+
+  searchInput.addEventListener("input", () => {
+    if (searchTimer !== null) {
+      window.clearTimeout(searchTimer);
+    }
+    searchTimer = window.setTimeout(() => {
+      void runSearch(searchInput.value);
+    }, 180);
+  });
+
+  const searchPanel = document.getElementById("jv-search-panel")!;
+  const searchToggleBtn = document.getElementById("jv-search-toggle")!;
+
+  function openSearchPanel(): void {
+    searchPanel.hidden = false;
+    searchInput.focus();
+    searchInput.select();
+  }
+
+  function closeSearchPanel(): void {
+    searchPanel.hidden = true;
+    if (searchTimer !== null) {
+      window.clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    if (searchInput.value || treeView.getSearchState().query) {
+      searchInput.value = "";
+      void treeView.clearSearch().then(updateSearchUi);
+    }
+  }
+
+  searchToggleBtn.addEventListener("click", () => {
+    if (searchPanel.hidden) openSearchPanel();
+    else closeSearchPanel();
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const currentQuery = treeView.getSearchState().query;
+      if (searchInput.value !== currentQuery) {
+        void commitSearch(searchInput.value);
+      } else {
+        void treeView.stepSearch(e.shiftKey ? -1 : 1).then(updateSearchUi);
+      }
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeSearchPanel();
+    }
+  });
+
+  searchInput.addEventListener("search", () => {
+    void commitSearch(searchInput.value);
+  });
+
+  searchPrevBtn.addEventListener("click", () => {
+    void treeView.stepSearch(-1).then(updateSearchUi);
+  });
+
+  searchNextBtn.addEventListener("click", () => {
+    void treeView.stepSearch(1).then(updateSearchUi);
+  });
+
+  searchClearBtn.addEventListener("click", () => {
+    closeSearchPanel();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const cmdOrCtrl = (e.metaKey || e.ctrlKey) && !e.altKey;
+    const key = e.key.toLowerCase();
+
+    if (cmdOrCtrl && !e.shiftKey && key === "f" && currentView === "tree") {
+      e.preventDefault();
+      openSearchPanel();
+      return;
+    }
+
+    if (cmdOrCtrl && key === "g" && currentView === "tree") {
+      e.preventDefault();
+      if (treeView.getSearchState().matchCount === 0) {
+        openSearchPanel();
+        return;
+      }
+      void treeView.stepSearch(e.shiftKey ? -1 : 1).then(updateSearchUi);
+      return;
+    }
+
+    if (e.key === "Escape" && !searchPanel.hidden) {
+      e.preventDefault();
+      closeSearchPanel();
+    }
+  });
+
+  updateSearchUi();
+
   await updateThemeButton();
   document.getElementById("jv-theme-toggle")!.addEventListener("click", cycleTheme);
 
-  // Settings menu
   const settingsToggle = document.getElementById("jv-settings-toggle")!;
   const settingsMenu = document.getElementById("jv-settings-menu")!;
   settingsToggle.addEventListener("click", () => {
@@ -322,7 +439,6 @@ async function init(): Promise<void> {
     }
   });
 
-  // Custom cursor toggle
   const cursorCheckbox = document.getElementById("jv-cursor-toggle") as HTMLInputElement;
   cursorCheckbox.checked = await storageGet("jv-custom-cursor", "false") === "true";
   cursorCheckbox.addEventListener("change", async () => {
@@ -330,10 +446,11 @@ async function init(): Promise<void> {
     applyCustomCursor(cursorCheckbox.checked);
   });
 
-  // Hover path
-  setupHoverPath(tree, pathText, pathDisplay, pathCopyBtn);
+  setupHoverPath(tree, treeView, pathText, pathDisplay, pathCopyBtn);
+  window.addEventListener("pagehide", () => {
+    searchIndex.dispose();
+  });
 
-  // Inject data into page context
   injectPageData(raw);
 }
 

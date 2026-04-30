@@ -1,0 +1,1 @@
+(function(){"use strict";(function(){const t=document.getElementById("jv-json-data");if(t)try{window.data=JSON.parse(t.textContent||""),console.log("%c[JSON Alexander]%c Data available as %cwindow.data","color: #f0c674; font-weight: bold","color: inherit","color: #81a2be; font-weight: bold")}catch{}})()})();

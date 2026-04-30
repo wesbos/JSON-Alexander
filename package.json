@@ -5,14 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build && ENTRY=content vite build --watch",
-    "build": "ENTRY=content vite build && ENTRY=page-script vite build",
-    "zip": "npm run build && cd dist && zip -r ../json-alexander.zip . && cd .."
+    "build": "ENTRY=content vite build && ENTRY=page-script vite build && ENTRY=tree-worker vite build",
+    "zip": "npm run build && cd dist && zip -r ../json-alexander.zip . && cd ..",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.39",
     "@types/node": "^25.5.2",
+    "jsdom": "^26.1.0",
     "typescript": "^5.8.0",
     "vite": "^6.2.0",
-    "vite-plugin-static-copy": "^3.0.0"
+    "vite-plugin-static-copy": "^3.0.0",
+    "vitest": "^3.2.4"
   }
 }
